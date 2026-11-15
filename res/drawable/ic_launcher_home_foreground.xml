@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Karma Minimalist K: Vertical Stem -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:pathData="M 38,30 L 38,78" />
+    <!-- Karma Minimalist K: Upper Diagonal Branch (Accent Sky Blue) -->
+    <path
+        android:strokeColor="#60A5FA"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 40,54 L 68,30" />
+    <!-- Karma Minimalist K: Lower Diagonal Branch (White) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 47,48 L 68,78" />
+</vector>
