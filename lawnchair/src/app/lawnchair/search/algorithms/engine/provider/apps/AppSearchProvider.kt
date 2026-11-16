@@ -22,14 +22,17 @@ object AppSearchProvider {
     // manual invalidation on app install/remove/update is needed. Access-order + bound keeps
     // memory bounded even if many dynamic shortcuts with unique titles pass through here.
     private val normalizedTitleCache = object : java.util.LinkedHashMap<String, String>(
-        256, 0.75f, true,
+        256,
+        0.75f,
+        true,
     ) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
             return size > 512
         }
     }
 
-    private fun normalizedTitle(title: CharSequence): String = synchronized(normalizedTitleCache) {
+    private fun normalizedTitle(title: CharSequence?): String = synchronized(normalizedTitleCache) {
+        if (title.isNullOrEmpty()) return ""
         val raw = title.toString()
         normalizedTitleCache[raw] ?: stripDiacritics(raw).also { normalizedTitleCache[raw] = it }
     }
