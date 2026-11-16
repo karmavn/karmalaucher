@@ -271,4 +271,4 @@ fun About(
     }
 }
 
-private const val PRIVACY_POLICY = "https://lawnchair.app/privacy_policy"
+private const val PRIVACY_POLICY = "https://github.com/karmavn/karmalaucher"
