@@ -166,14 +166,15 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: assembleLawnWithQuickstepNightlyRelease
+          path: downloaded-apk
       # Note the # and () symbols are not supported in GitHub Release filenames, even manually
       - name: Export APK_NAME for later use
         run: echo "APK_NAME=KarmaLauncher.Debug.${{ github.ref_name }}.Nightly-CI_${{ github.run_number }}-$(echo ${{ github.sha }} | cut -c1-7).apk" >> $GITHUB_ENV
       - name: Rename .apk file
         run: |
-          APK_FILE=$(find . -name "*.apk" | head -n 1)
+          APK_FILE=$(find downloaded-apk -name "*.apk" | head -n 1)
           if [ -z "$APK_FILE" ]; then
-            echo "No APK file found!"
+            echo "No APK file found in downloaded-apk!"
             exit 1
           fi
           echo "Found APK: $APK_FILE"
