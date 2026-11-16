@@ -23,6 +23,8 @@ on:
 jobs:
   build-release-apk:
     runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE != '' }}
     permissions:
       id-token: write
       attestations: write
@@ -37,7 +39,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - name: Write sign info
         id: sign-release-apk
-        if: ${{ secrets.KEYSTORE != '' }}
+        if: env.HAS_KEYSTORE == 'true'
         run: |
           if [ ! -z "${{ secrets.KEYSTORE }}" ]; then
             echo storePassword='${{ secrets.KEYSTORE_PASSWORD }}' >> keystore.properties

@@ -7,6 +7,8 @@ jobs:
   build-release-apk:
     runs-on: ubuntu-latest
     continue-on-error: true
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE != '' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -19,7 +21,7 @@ jobs:
         with:
           cache-encryption-key: Da25KUVSE5jbGds2zXmfXw==
       - name: Write sign info
-        if: ${{ secrets.KEYSTORE != '' }}
+        if: env.HAS_KEYSTORE == 'true'
         run: |
           if [ ! -z "${{ secrets.KEYSTORE }}" ]; then
             echo storePassword='${{ secrets.KEYSTORE_PASSWORD }}' >> keystore.properties

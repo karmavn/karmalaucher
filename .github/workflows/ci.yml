@@ -31,6 +31,8 @@ env:
 
 jobs:
   build-debug-apk:
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE != '' }}
     strategy:
       matrix:
         build-variant: [ assembleLawnWithQuickstepNightlyRelease, assembleLawnWithQuickstepGithubDebug ]
@@ -47,7 +49,7 @@ jobs:
         with:
           cache-encryption-key: Da25KUVSE5jbGds2zXmfXw==
       - name: Write sign info
-        if: ${{ secrets.KEYSTORE != '' }}
+        if: env.HAS_KEYSTORE == 'true'
         run: |
           if [ ! -z "${{ secrets.KEYSTORE }}" ]; then
             echo storePassword='${{ secrets.KEYSTORE_PASSWORD }}' >> keystore.properties
@@ -77,10 +79,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew spotlessCheck
 
+  secret-flags:
+    runs-on: ubuntu-slim
+    outputs:
+      has_telegram_token: ${{ steps.flags.outputs.has_telegram_token }}
+    steps:
+      - id: flags
+        env:
+          TELEGRAM_TOKEN_SET: ${{ secrets.TELEGRAM_CI_BOT_TOKEN != '' }}
+        run: echo "has_telegram_token=$TELEGRAM_TOKEN_SET" >> "$GITHUB_OUTPUT"
+
   send-notifications:
     runs-on: ubuntu-latest
-    if: ${{ secrets.TELEGRAM_CI_BOT_TOKEN != '' }}
-    needs: build-debug-apk
+    if: needs.secret-flags.outputs.has_telegram_token == 'true'
+    needs: [build-debug-apk, secret-flags]
     steps:
       - uses: actions/checkout@v7
         with:
