@@ -14,6 +14,25 @@ import java.util.Locale
 object AppSearchProvider {
 
     private val DIACRITICS_REMOVE_PATTERN = "\\p{M}+".toRegex()
+    private val WHITESPACE_REGEX = Regex("\\s+")
+
+    // NFKD normalization + regex replacement is the most expensive part of search and was
+    // previously recomputed for every app on every keystroke. Cache it by the *content* of the
+    // title (an immutable String), so the entry self-invalidates when a label changes and no
+    // manual invalidation on app install/remove/update is needed. Access-order + bound keeps
+    // memory bounded even if many dynamic shortcuts with unique titles pass through here.
+    private val normalizedTitleCache = object : java.util.LinkedHashMap<String, String>(
+        256, 0.75f, true,
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
+            return size > 512
+        }
+    }
+
+    private fun normalizedTitle(title: CharSequence): String = synchronized(normalizedTitleCache) {
+        val raw = title.toString()
+        normalizedTitleCache[raw] ?: stripDiacritics(raw).also { normalizedTitleCache[raw] = it }
+    }
 
     fun search(context: Context, query: String, allApps: AllAppsList): List<SearchResult.App> {
         val prefs = PreferenceManager2.getInstance(context)
@@ -38,7 +57,7 @@ object AppSearchProvider {
         // apps that don't match all of the words in the query.
         val matcher = StringMatcherUtility.StringMatcher.getInstance()
         return apps.asSequence()
-            .filter { StringMatcherUtility.matches(query, stripDiacritics(it.title.toString()), matcher) }
+            .filter { StringMatcherUtility.matches(query, normalizedTitle(it.title), matcher) }
             .filterHiddenApps(query, hiddenApps, hiddenAppsInSearch)
             .take(maxResultsCount)
             .toList()
@@ -49,9 +68,12 @@ object AppSearchProvider {
             .filterHiddenApps(query, hiddenApps, hiddenAppsInSearch)
             .toList()
 
+        // Precompute query tokens once for all apps to avoid redundant splits per item
+        val qTokens = query.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
+
         return filteredApps
             .mapNotNull { app ->
-                val matchResult = AppMatcher.match(stripDiacritics(app.title.toString()), query)
+                val matchResult = AppMatcher.match(normalizedTitle(app.title), query, qTokens)
                 if (matchResult.type == MatchType.NO_MATCH) null else Pair(app, matchResult)
             }
             .sortedWith(
@@ -67,5 +89,7 @@ object AppSearchProvider {
     private fun stripDiacritics(input: String): String {
         return Normalizer.normalize(input, Normalizer.Form.NFKD)
             .replace(DIACRITICS_REMOVE_PATTERN, "")
+            .replace('đ', 'd')
+            .replace('Đ', 'D')
     }
 }
