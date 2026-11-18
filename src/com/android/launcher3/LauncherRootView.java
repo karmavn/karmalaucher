@@ -60,6 +60,9 @@ public class LauncherRootView extends InsettableFrameLayout {
 
     /** Incremented whenever a blur job is invalidated, so stale results are discarded. */
     private final AtomicInteger mBlurGeneration = new AtomicInteger();
+    private boolean mBlurRequested;
+    private boolean mBlurInstalled;
+    private boolean mBlurNeedsReschedule;
 
     public LauncherRootView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -84,6 +87,8 @@ public class LauncherRootView extends InsettableFrameLayout {
      * the binder call, bitmap allocation and blur all happen on a background executor.
      */
     private void scheduleBlur(Context context) {
+        mBlurRequested = true;
+        mBlurNeedsReschedule = false;
         var display = mStatefulContainer.getDeviceProfile();
         int width = display.getDeviceProperties().getWidthPx();
         int height = display.getDeviceProperties().getHeightPx();
@@ -132,6 +137,7 @@ public class LauncherRootView extends InsettableFrameLayout {
                 MAIN_EXECUTOR.execute(() -> {
                     if (mBlurGeneration.get() == generation && isAttachedToWindow()) {
                         setBackground(new BitmapDrawable(getContext().getResources(), result));
+                        mBlurInstalled = true;
                     }
                 });
             } catch (RuntimeException ignored) {
@@ -211,9 +217,23 @@ public class LauncherRootView extends InsettableFrameLayout {
     }
 
     @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        // A transient detach invalidated an unfinished blur; start it again so the view does
+        // not live its whole life without the wallpaper blur.
+        if (mBlurNeedsReschedule) {
+            mBlurNeedsReschedule = false;
+            scheduleBlur(getContext());
+        }
+    }
+
+    @Override
     protected void onDetachedFromWindow() {
         // Invalidate any in-flight blur so it cannot install a stale background on a dead view.
         mBlurGeneration.incrementAndGet();
+        if (mBlurRequested && !mBlurInstalled) {
+            mBlurNeedsReschedule = true;
+        }
         super.onDetachedFromWindow();
     }
 

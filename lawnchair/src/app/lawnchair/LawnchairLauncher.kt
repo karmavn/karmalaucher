@@ -256,18 +256,26 @@ class LawnchairLauncher : QuickstepLauncher() {
     override fun bindComplete(workspaceItemCount: Int, isBindSync: Boolean) {
         super.bindComplete(workspaceItemCount, isBindSync)
         if (hasReportedFullyDrawn) return
+        hasReportedFullyDrawn = true
 
-        // bindComplete() is the initial model-bind completion callback; super released
-        // the pre-draw gate, so the next frame is the first one that shows the workspace.
-        // Posting lets that frame be drawn before we report. The flag keeps this to one
-        // report per activity instance (rebinds, configuration changes and recreates all
-        // get a fresh instance), and reportFullyDrawn() is a no-op unless the system is
-        // actively measuring startup, so this is harmless in release builds.
-        dragLayer.post {
-            if (hasReportedFullyDrawn) return@post
-            hasReportedFullyDrawn = true
-            reportFullyDrawn()
-        }
+        // super.bindComplete() only removes the pre-draw gate. Report after an actual draw
+        // (same one-shot OnDrawListener pattern used in onResume), otherwise the timestamp
+        // would precede the frame that shows the bound workspace. reportFullyDrawn() is a
+        // no-op unless startup is being measured, so this is harmless in release builds.
+        dragLayer.viewTreeObserver.addOnDrawListener(
+            object : ViewTreeObserver.OnDrawListener {
+                private var handled = false
+
+                override fun onDraw() {
+                    if (handled) return
+                    handled = true
+                    dragLayer.post {
+                        dragLayer.viewTreeObserver.removeOnDrawListener(this)
+                        reportFullyDrawn()
+                    }
+                }
+            },
+        )
     }
 
     override fun onNewIntent(intent: Intent?) {

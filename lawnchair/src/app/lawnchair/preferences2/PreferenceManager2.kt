@@ -23,7 +23,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -82,12 +81,12 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 @LauncherAppSingleton
 class PreferenceManager2 @Inject constructor(
@@ -113,12 +112,10 @@ class PreferenceManager2 @Inject constructor(
 
     override val preferencesDataStore = context.preferencesDataStore
 
-    // Start from an empty snapshot so construction never blocks on DataStore. The collector in
-    // [init] takes over on Dispatchers.Main.immediate and replaces this with real preferences as
-    // soon as they arrive. getFromPreferences() maps an empty snapshot to each preference's
-    // defaultValue, so first-frame reads are always safe and non-null.
     @Volatile
-    private var cachedPreferences: Preferences = emptyPreferences()
+    private var cachedPreferences: Preferences = runBlocking {
+        preferencesDataStore.data.first()
+    }
 
     fun getCachedPreferences(): Preferences = cachedPreferences
 
@@ -903,13 +900,9 @@ class PreferenceManager2 @Inject constructor(
             .onEach { cachedPreferences = it }
             .launchIn(scope)
 
-        // firstCached() now starts from the resource default instead of the persisted value.
-        // Drop only the flow's first emission when it matches that default (nothing changed);
-        // keep it when it differs so a persisted custom shape is still applied on startup.
-        val initialShape = iconShape.firstCached(this)
-        initializeIconShape(initialShape)
+        initializeIconShape(iconShape.firstCached(this))
         iconShape.get()
-            .dropWhile { it == initialShape }
+            .drop(1)
             .distinctUntilChanged()
             .onEach { shape ->
                 initializeIconShape(shape)
