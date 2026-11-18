@@ -222,22 +222,21 @@ class BcSmartspaceCard @JvmOverloads constructor(
 
     private fun iconToken(icon: Icon?): String {
         if (icon == null) return "none"
-        return if (icon.mode == Icon.TYPE_RESOURCE) {
-            val resId = try {
-                icon.resId
-            } catch (_: IllegalStateException) {
-                -1
-            }
-            "res:$resId"
-        } else {
-            "id:${System.identityHashCode(icon)}"
+        // Avoid Icon.getMode(): it is not available in this project's compile-time stubs.
+        // getResId() throws for non-resource icons, which is exactly the fallback signal.
+        val resId = try {
+            icon.resId
+        } catch (_: IllegalStateException) {
+            -1
         }
+        return if (resId > 0) "res:$resId" else "id:${System.identityHashCode(icon)}"
     }
 
     private fun headerIconTint(): Int = when (target.featureType) {
         // Weather icons are never tinted (see updateIconTint), so use a stable sentinel
         // instead of the text color to avoid needless cache entries on a theme change.
         SmartspaceTarget.FeatureType.FEATURE_WEATHER -> NO_TINT
+
         else -> iconTintColor
     }
 
