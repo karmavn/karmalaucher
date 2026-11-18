@@ -164,8 +164,12 @@ class IcuDateTextView @JvmOverloads constructor(
 
     private fun onTimeTick() {
         onTimeChanged(false)
-        val uptimeMillis: Long = SystemClock.uptimeMillis()
-        handler?.postAtTime(ticker, uptimeMillis + (1000 - uptimeMillis % 1000))
+        // Date-only patterns change at minute boundaries at the earliest. Waking up every second
+        // just re-formats the same string on the main thread on every tick.
+        val intervalMillis = if (dateTimeOptions.showTime) 1_000L else 60_000L
+        val wallTime = System.currentTimeMillis()
+        val delayMillis = intervalMillis - wallTime % intervalMillis
+        handler?.postAtTime(ticker, SystemClock.uptimeMillis() + delayMillis)
     }
 
     override fun onVisibilityAggregated(isVisible: Boolean) {

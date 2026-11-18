@@ -34,12 +34,17 @@ build.gradle
 gradle.properties
 lawnchair/src/app/lawnchair/search/algorithms/engine/provider/apps/AppMatcher.kt
 lawnchair/src/app/lawnchair/search/algorithms/engine/provider/apps/AppSearchProvider.kt
+lawnchair/src/app/lawnchair/search/algorithms/SearchUtils.kt
+lawnchair/src/app/lawnchair/search/algorithms/engine/provider/SettingsSearchProvider.kt
+lawnchair/src/app/lawnchair/search/algorithms/engine/provider/ContactsSearchProvider.kt
+lawnchair/src/app/lawnchair/search/algorithms/engine/provider/CalculatorSearchProvider.kt
+lawnchair/src/app/lawnchair/backup/NovaBackupConverter.kt
 .github/workflows/ci.yml
 "
 for f in $FINGERPRINT_FILES; do
   [ -f "$f" ] || continue
-  head_h=$(git rev-parse "HEAD:$f" 2>/dev/null || echo <missing>)
-  work_h=$(git hash-object "$f" 2>/dev/null || echo <missing>)
+  head_h=$(git rev-parse "HEAD:$f" 2>/dev/null || echo "<missing>")
+  work_h=$(git hash-object "$f" 2>/dev/null || echo "<missing>")
   if [ "$head_h" = "$work_h" ]; then state=UNCHANGED; else state=CHANGED; fi
   printf '  %-90s %s\n' "$f" "$state"
   printf '      HEAD=%s\n      WORK=%s\n' "$head_h" "$work_h"

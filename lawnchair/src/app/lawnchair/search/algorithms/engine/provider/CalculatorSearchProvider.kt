@@ -15,6 +15,8 @@ object CalculatorSearchProvider : SearchProvider {
 
     override val id: String = "calculator"
 
+    private val expressionsHolder = ThreadLocal.withInitial { Expressions() }
+
     override fun search(
         context: Context,
         query: String,
@@ -40,7 +42,7 @@ object CalculatorSearchProvider : SearchProvider {
         query: String,
     ): Calculation {
         return try {
-            val evaluatedValue = Expressions().eval(query)
+            val evaluatedValue = expressionsHolder.get().eval(query)
             val roundedValue = evaluatedValue.round(MathContext.DECIMAL64)
             val formattedValue = roundedValue.stripTrailingZeros()
             val absoluteValue = formattedValue.abs()
