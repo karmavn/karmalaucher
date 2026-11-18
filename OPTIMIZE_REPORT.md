@@ -13,7 +13,7 @@
 | **Công nghệ & Stack** | Ứng dụng Android native. Kotlin 2.4.21 / Java (yêu cầu JDK 21 theo `gradle/libs.versions.toml:2`), AGP 9.5.1, Gradle 9.9.1, Jetpack Compose, SQLite/Room, DataStore Preferences, OkHttp/Retrofit, R8 / Proguard. CI build bằng Zulu JDK 21 (`.github/workflows/ci.yml`). |
 | **Win 1 — Loại bỏ Reflection trong tìm kiếm cài đặt (#26)** | `SettingsSearchProvider.kt`: Trước đây, mỗi khi người dùng gõ 1 ký tự, hàm tìm kiếm lại gọi `Settings::class.java.fields` (Java Reflection) để lấy toàn bộ trường tĩnh của hệ thống và lọc chuỗi loại trừ. Đã chuyển toàn bộ danh sách hành động cài đặt sang `lazy` khởi tạo một lần duy nhất (`ALL_SETTINGS_ACTIONS`). Loại bỏ triệt để chi phí cấp phát mảng phản chiếu trên từng phím gõ. |
 | **Win 2 — Tối ưu hóa cấp phát trong thuật toán tìm kiếm (#13)** | `AppMatcher.kt` & `SearchUtils.kt`: Thuật toán so khớp viết tắt (Initials) trước đây tạo chuỗi 1 ký tự cho từng token (`it.first().toString()`) rồi ghép lại qua `joinToString`. Đã thay bằng so khớp trực tiếp theo chỉ mục ký tự không cấp phát bộ nhớ (Zero Allocation) và đoản mạch khi độ dài không đủ. `filterHiddenApps` được thêm điều kiện thoát sớm `if (hiddenApps.isEmpty()) return this`, tránh sinh đối tượng `ComponentKey` và gọi `.toString()` cho hàng trăm ứng dụng mỗi phím gõ. |
-| **Win 3 — Tái sử dụng Evaluator & Hoist Cursor Column Index (#24, #26)** | Trong `CalculatorSearchProvider.kt`, tái sử dụng đối tượng `Expressions` qua `ThreadLocal` thay vì khởi tạo lại toàn bộ bộ phân tích cú pháp + 10 hàm lambda toán học mỗi khi kiểm tra phương trình. Trong `ContactsSearchProvider.kt` và `NovaBackupConverter.kt`, đưa toàn bộ các lệnh `getColumnIndex`/`getColumnIndexOrThrow` ra ngoài vòng lặp `while (cursor.moveToNext())`, tiết kiệm hàng nghìn lượt tìm kiếm chuỗi cột trong bộ nhớ SQLite. |
+| **Win 3 — Hoist Cursor Column Index (#24, #26)** | Trong `ContactsSearchProvider.kt` và `NovaBackupConverter.kt`, đưa toàn bộ các lệnh `getColumnIndex`/`getColumnIndexOrThrow` ra ngoài vòng lặp `while (cursor.moveToNext())`, tiết kiệm hàng nghìn lượt tìm kiếm chuỗi cột trong bộ nhớ SQLite. (Thử nghiệm tái sử dụng `Expressions` qua `ThreadLocal` ở `CalculatorSearchProvider.kt` đã bị revert — xem mục 4.6.) |
 | **Win 4 — Dọn dẹp phụ thuộc trùng lặp (#6)** | `build.gradle:429`: Loại bỏ khai báo trùng lặp `baselineProfile projects.baselineProfile` (đã được khai báo ở dòng 424). |
 | **Giao diện & Hành vi** | Bảo toàn 100% layout, animation, màu sắc và logic tìm kiếm/khôi phục dữ liệu. |
 
@@ -41,7 +41,7 @@ Do đó, các số liệu như thời gian biên dịch APK release (build wall 
 | `…/SearchUtils.kt` | `8e6231a6…` | `b683d6b4…` | **ĐÃ SỬA** (Đoản mạch `filterHiddenApps`) |
 | `…/SettingsSearchProvider.kt` | `183161b0…` | `61ae11a4…` | **ĐÃ SỬA** (Cache static settings reflection) |
 | `…/ContactsSearchProvider.kt` | `c620104b…` | `bcbe5e82…` | **ĐÃ SỬA** (Hoist `getColumnIndex` ra ngoài loop) |
-| `…/CalculatorSearchProvider.kt` | `959882f3…` | `8636b203…` | **ĐÃ SỬA** (ThreadLocal reuse `Expressions`) |
+| `…/CalculatorSearchProvider.kt` | `959882f3…` | (xem mục 4.6) | **REVERT** (chỉ giữ comment; ThreadLocal gây lỗi hành vi) |
 | `…/NovaBackupConverter.kt` | `754c8152…` | `f371af4c…` | **ĐÃ SỬA** (Hoist 12 column index lookups) |
 | `.github/workflows/ci.yml` | `9d9c9a0f…` | `9d9c9a0f…` | KHÔNG ĐỔI |
 
@@ -82,7 +82,7 @@ Do đó, các số liệu như thời gian biên dịch APK release (build wall 
 | 23 | Đánh chỉ mục cơ sở dữ liệu (Indexes) | Đạt | Bảng `FolderItems` có index `index_FolderItems_folderId` (`AppDatabase.kt:81`). Bảng `favorites` được đánh chỉ mục theo `container` và `screen`. | H |
 | 24 | Chỉ select cột cần thiết / Tối ưu Cursor | **Đã sửa** | Trong `NovaBackupConverter.kt`, đưa toàn bộ 12 lệnh `getColumnIndexOrThrow` ra ngoài vòng lặp `while (cursor.moveToNext())`, tránh quét bảng tên cột lặp đi lặp lại. | M |
 | 25 | Tái sử dụng kết nối cơ sở dữ liệu | Đạt | Sử dụng Singleton `AppDatabase.INSTANCE` và quản lý phiên kết nối tập trung qua `DatabaseHelper`. | M |
-| 26 | Cache dữ liệu tĩnh hay truy cập | **Đã sửa** | 1) `SettingsSearchProvider.kt`: Khởi tạo `lazy` danh sách action cài đặt hệ thống một lần duy nhất, loại bỏ reflection trên từng phím gõ. 2) `CalculatorSearchProvider.kt`: Tái sử dụng `Expressions` qua `ThreadLocal`. | H |
+| 26 | Cache dữ liệu tĩnh hay truy cập | **Đã sửa (1 phần)** | 1) `SettingsSearchProvider.kt`: Khởi tạo `lazy` danh sách action cài đặt hệ thống một lần duy nhất, loại bỏ reflection trên từng phím gõ. 2) `CalculatorSearchProvider.kt`: thử `ThreadLocal` nhưng đã revert vì lưu biến giữa các lần gõ. | H |
 | 27 | Vị trí đặt cơ sở dữ liệu | N/A | Cơ sở dữ liệu SQLite nằm trực tiếp trên chip nhớ flash của thiết bị di động. | L |
 | 28 | Cân bằng tải | N/A | Ứng dụng cục bộ trên thiết bị của người dùng cuối. | L |
 | 29 | Tracing đường đi chậm | Đạt | Sử dụng `android.os.Trace` và `TraceHelper` trên 78 tệp để phân tích Systrace / Perfetto. | M |
@@ -115,7 +115,7 @@ Do đó, các số liệu như thời gian biên dịch APK release (build wall 
 
 ### 6. `lawnchair/src/app/lawnchair/search/algorithms/engine/provider/CalculatorSearchProvider.kt`
 - **Vấn đề:** Mỗi lần tính toán `Expressions().eval(query)` đều tạo mới đối tượng `Expressions`, kéo theo việc khởi tạo một `Evaluator`, nạp 10 hàm lambda toán học (`abs`, `sum`, `floor`, `ceil`, `round`, `min`, `max`, `sqrt`, `cbrt`) và các hằng số `BigDecimal`. Quá trình này kích hoạt liên tục trong `LawnchairLocalSearchAlgorithm` mỗi khi có kết quả gợi ý mới.
-- **Khắc phục:** Quản lý phiên bản tái sử dụng của `Expressions` thông qua `ThreadLocal.withInitial { Expressions() }`, loại bỏ toàn bộ chi phí cấp phát đối tượng thừa thãi trong quá trình tính toán công thức.
+- **Khắc phục / Điều chỉnh:** Ban đầu thử `ThreadLocal.withInitial { Expressions() }`. Tuy nhiên `Expressions` chứa `Evaluator.variables` có thể bị thay đổi bởi phép gán (`x = 5`), nên tái sử dụng cùng một instance làm biến tồn tại giữa các lần gõ — ví dụ `x + 1` sau đó được tính ra số thay vì báo "Undefined variable". Đã **revert** về `Expressions()` mới cho mỗi truy vấn để bảo toàn hành vi gốc; vẫn giữ comment giải thích lý do.
 
 ### 7. `lawnchair/src/app/lawnchair/backup/NovaBackupConverter.kt`
 - **Vấn đề:** Khi khôi phục dữ liệu từ Nova Launcher backup, vòng lặp `while (cursor.moveToNext())` gọi `getColumnIndexOrThrow` và `getColumnIndex` hơn 12 lần trên mỗi item để lấy tọa độ màn hình, icon, intent, spanX, spanY...
@@ -151,7 +151,9 @@ Mục tiêu: tiệm cận cảm giác "đẹp và mượt" của iOS mà vẫn g
 
 | # | Tệp | Vấn đề | Cách sửa | Mức độ rủi ro |
 |:-:|:--|:--|:--|:--|
-| 32 | `smartspace/SmartspacerView.kt` | `CoroutineScope(Dispatchers.Default)` tồn tại suốt vòng đời view; mỗi lần recreate activity (xoay màn hình, đổi theme, đổi `smartspaceMaxCount`) lại leaked một subscriber giữ view/context cũ. | Đọc giá trị cache đồng bộ bằng `firstCached(prefs2)` để `config` vẫn lấy đúng số card, sau đó dùng `repeatOnAttached { ... launchIn(this) }` để collector chỉ chạy khi view đang attach. | Thấp |
+| 32 | `smartspace/SmartspacerView.kt` | `CoroutineScope(Dispatchers.Default)` tồn tại suốt vòng đời view; mỗi lần recreate activity (xoay màn hình, đổi theme, đổi `smartspaceMaxCount`) lại leaked một subscriber giữ view/context cũ. | Đọc giá trị cache đồng bộ bằng `firstCached(prefs2)` để `config` vẫn lấy đúng số card, rồi bỏ hoàn toàn subscriber. `config` cố định lúc khởi tạo và việc đổi preference đã recreate activity, nên collector không có tác dụng. | Thấp |
+| 33b | `smartspace/IcuDateTextView.kt` | Sau khi đổi `smartspaceShowTime`, ticker vẫn giữ chu kỳ cũ nên giây có thể đứng yên tới ~60 s. | Tách `scheduleNextTick()`, gọi lại trong flow cài đặt mỗi khi `onTimeChanged(true)`. | Thấp |
+| 34b | `ui/popup/WallpaperCarouselView.kt` | `View.post()` trước khi attach nằm trong `HandlerActionQueue`, `View.handler` có thể null nên `removeCallbacks` trên handler bỏ sót runnable. | Dùng `View.removeCallbacks(displayRunnable)`. | Thấp |
 | 33 | `smartspace/IcuDateTextView.kt` | Khi `smartspaceShowTime = false`, pattern chỉ đổi ở ranh giới ngày nhưng vẫn chạy handler 1 Hz, mỗi lần gọi ICU `DateFormat.format()` và cấp phát String trên main thread. | Tính chu kỳ tick theo `showTime`: 1 giây khi hiện giờ, 60 giây khi chỉ hiện ngày; căn theo thời gian thực (wall clock) thay vì uptime. | Thấp |
 | 34 | `ui/popup/WallpaperCarouselView.kt` | `observeWallpapers()` decode ảnh rồi `onSizeChanged()` decode lại lần 2 lúc startup; fallback `BitmapFactory.decodeFile` decode nguyên độ phân giải; 1 wallpaper gây `itemWidth = Infinity`. | Chỉ decode sau khi đã có layout (`post` nếu `width == 0`), `onSizeChanged` chỉ redraw khi kích thước đổi thật; fallback dùng `decodeSampledBitmapFromFile` với bounds của `deviceProfile`; clamp `itemCount <= 1`. | Thấp–Trung bình |
 | 35 | `ui/preferences/components/controls/SwitchPreference.kt` | Mỗi switch vẽ thêm icon Check/Close trong thumb, trông đậm và bận hơn switch iOS. | Bỏ `thumbContent`, để thumb tròn thuần; đồng thời bỏ 2 composable `Icon` trên mỗi dòng settings. | Thấp (thuần thị giác) |

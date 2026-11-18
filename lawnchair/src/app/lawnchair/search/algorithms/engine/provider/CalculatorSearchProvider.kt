@@ -15,8 +15,6 @@ object CalculatorSearchProvider : SearchProvider {
 
     override val id: String = "calculator"
 
-    private val expressionsHolder = ThreadLocal.withInitial { Expressions() }
-
     override fun search(
         context: Context,
         query: String,
@@ -42,7 +40,9 @@ object CalculatorSearchProvider : SearchProvider {
         query: String,
     ): Calculation {
         return try {
-            val evaluatedValue = expressionsHolder.get().eval(query)
+            // Expressions owns a mutable variable table, so a fresh instance per query keeps
+            // assignments in one keystroke from leaking into the next one.
+            val evaluatedValue = Expressions().eval(query)
             val roundedValue = evaluatedValue.round(MathContext.DECIMAL64)
             val formattedValue = roundedValue.stripTrailingZeros()
             val absoluteValue = formattedValue.abs()

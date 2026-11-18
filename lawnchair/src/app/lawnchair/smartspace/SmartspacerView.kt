@@ -13,7 +13,6 @@ import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.ui.preferences.PreferenceActivity
 import app.lawnchair.ui.preferences.navigation.Smartspace
 import app.lawnchair.util.firstCached
-import app.lawnchair.util.repeatOnAttached
 import com.android.launcher3.R
 import com.android.launcher3.logging.StatsLogManager
 import com.android.launcher3.views.OptionsPopupView
@@ -24,8 +23,6 @@ import com.kieronquinn.app.smartspacer.sdk.client.views.popup.PopupFactory
 import com.kieronquinn.app.smartspacer.sdk.model.SmartspaceConfig
 import com.kieronquinn.app.smartspacer.sdk.model.SmartspaceTarget
 import com.kieronquinn.app.smartspacer.sdk.model.UiSurface
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 
 class SmartspacerView(context: Context, attrs: AttributeSet?) : BcSmartspaceView(context, attrs) {
     private lateinit var viewPager: ViewPager
@@ -33,15 +30,10 @@ class SmartspacerView(context: Context, attrs: AttributeSet?) : BcSmartspaceView
     private var targetCount = 5
 
     init {
-        // Read the cached value synchronously so `config` below is built with the user's count.
+        // `config` is fixed at construction, so read the cached value synchronously. A live
+        // collector would only leak a subscriber on every activity recreate, since changing this
+        // preference already recreates the activity (see PreferenceManager2.onSet).
         targetCount = prefs2.smartspacerMaxCount.firstCached(prefs2)
-        // Collect only while attached: a plain CoroutineScope here leaked a subscriber (and the
-        // old view/context) on every activity recreate.
-        repeatOnAttached {
-            prefs2.smartspacerMaxCount.get()
-                .onEach { targetCount = it }
-                .launchIn(this)
-        }
 
         popupFactory = object : PopupFactory {
             override fun createPopup(

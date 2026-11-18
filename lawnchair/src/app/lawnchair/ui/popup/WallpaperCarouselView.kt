@@ -208,7 +208,9 @@ class WallpaperCarouselView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        handler?.removeCallbacks(displayRunnable)
+        // View.removeCallbacks also clears the pre-attach HandlerActionQueue; View.handler can be
+        // null in that case, so removeCallbacks on it would miss the runnable posted in init.
+        removeCallbacks(displayRunnable)
         viewScope.cancel()
     }
 
