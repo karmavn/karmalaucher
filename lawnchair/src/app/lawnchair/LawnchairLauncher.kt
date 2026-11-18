@@ -154,6 +154,7 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     private lateinit var colorScheme: ColorScheme
     private var hasBackGesture = false
+    private var hasReportedFullyDrawn = false
 
     val gestureController by unsafeLazy { GestureController(this) }
 
@@ -250,6 +251,23 @@ class LawnchairLauncher : QuickstepLauncher() {
         reloadIconsIfNeeded()
 
         AppDatabase.INSTANCE.get(this).checkpointSync()
+    }
+
+    override fun bindComplete(workspaceItemCount: Int, isBindSync: Boolean) {
+        super.bindComplete(workspaceItemCount, isBindSync)
+        if (hasReportedFullyDrawn) return
+
+        // bindComplete() is the initial model-bind completion callback; super released
+        // the pre-draw gate, so the next frame is the first one that shows the workspace.
+        // Posting lets that frame be drawn before we report. The flag keeps this to one
+        // report per activity instance (rebinds, configuration changes and recreates all
+        // get a fresh instance), and reportFullyDrawn() is a no-op unless the system is
+        // actively measuring startup, so this is harmless in release builds.
+        dragLayer.post {
+            if (hasReportedFullyDrawn) return@post
+            hasReportedFullyDrawn = true
+            reportFullyDrawn()
+        }
     }
 
     override fun onNewIntent(intent: Intent?) {

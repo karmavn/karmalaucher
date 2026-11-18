@@ -7,6 +7,8 @@ import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,10 +60,18 @@ class StartupBenchmarks {
             measureBlock = {
                 startActivityAndWait()
 
-                // TODO Add interactions to wait for when your app is fully drawn.
-                // The app is fully drawn when Activity.reportFullyDrawn is called.
-                // For Jetpack Compose, you can use ReportDrawn, ReportDrawnWhen and ReportDrawnAfter
-                // from the AndroidX Activity library.
+                // UiAutomator cannot observe Activity.reportFullyDrawn() directly, and the
+                // ReportDrawn/ReportDrawnWhen/ReportDrawnAfter helpers are Compose-only
+                // (androidx.activity:activity-compose, not a dependency of this module).
+                // Instead, keep the measurement window open until the home screen is
+                // present and idle; LawnchairLauncher reports fully drawn after the initial
+                // workspace bind and the first drawn frame. This is a proxy for that signal,
+                // not a direct wait on it.
+                device.wait(
+                    Until.hasObject(By.res(Constants.PACKAGE_NAME, "workspace")),
+                    5_000,
+                )
+                device.waitForIdle()
 
                 // Check the UiAutomator documentation for more information on how to
                 // interact with the app.

@@ -1,6 +1,8 @@
 package com.android.launcher3;
 
 import static com.android.launcher3.config.FeatureFlags.SEPARATE_RECENTS_ACTIVITY;
+import static com.android.launcher3.util.Executors.MAIN_EXECUTOR;
+import static com.android.launcher3.util.Executors.UI_HELPER_EXECUTOR;
 
 import android.app.WallpaperManager;
 import android.content.Context;
@@ -16,6 +18,8 @@ import android.view.KeyEvent;
 import android.view.ViewDebug;
 import android.view.WindowInsets;
 
+import androidx.core.view.ViewCompat;
+
 import com.android.launcher3.graphics.SysUiScrim;
 import com.android.launcher3.statemanager.StatefulContainer;
 
@@ -24,6 +28,7 @@ import com.android.launcher3.views.ActivityContext;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.hoko.blur.HokoBlur;
 import app.lawnchair.preferences2.PreferenceCacheExtensionsKt;
@@ -53,6 +58,9 @@ public class LauncherRootView extends InsettableFrameLayout {
 
     private final PreferenceManager pref;
 
+    /** Incremented whenever a blur job is invalidated, so stale results are discarded. */
+    private final AtomicInteger mBlurGeneration = new AtomicInteger();
+
     public LauncherRootView(Context context, AttributeSet attrs) {
         super(context, attrs);
         mStatefulContainer = ActivityContext.lookupContext(context);
@@ -66,57 +74,70 @@ public class LauncherRootView extends InsettableFrameLayout {
         FileAccessManager fileAccessManager = FileAccessManager.getInstance(context);
         FileAccessState wallpaperAccessState = fileAccessManager.getWallpaperAccessState().getValue();
         if (pref.getEnableWallpaperBlur().get() && wallpaperAccessState != FileAccessState.Denied.INSTANCE) {
-            setUpBlur(context);
+            scheduleBlur(context);
         }
     }
 
-    private void setUpBlur(Context context) {
+    /**
+     * Defers the expensive wallpaper blur until after the first draw so it never blocks the
+     * cold-start main thread. The configuration is captured up front (cheap, cached reads);
+     * the binder call, bitmap allocation and blur all happen on a background executor.
+     */
+    private void scheduleBlur(Context context) {
         var display = mStatefulContainer.getDeviceProfile();
         int width = display.getDeviceProperties().getWidthPx();
         int height = display.getDeviceProperties().getHeightPx();
+        int sampleFactor = pref.getWallpaperBlurFactorThreshold().get();
+        int radius = pref.getWallpaperBlur().get();
+        int generation = mBlurGeneration.incrementAndGet();
 
-        var wallpaper = getScaledWallpaperDrawable(width, height);
-        if (wallpaper == null) {
-            return;
-        }
-
-        Bitmap originalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(originalBitmap);
-
-        wallpaper.setBounds(0, 0, width, height);
-        wallpaper.draw(canvas);
-
-        Paint paint = new Paint();
-        paint.setColor(Color.WHITE);
-        paint.setAlpha((int) (0.2 * 255));
-        canvas.drawRect(0, 0, width, height, paint);
-
-        Bitmap blurredBitmap = HokoBlur.with(context)
-                .forceCopy(true)
-                .scheme(HokoBlur.SCHEME_OPENGL)
-                .sampleFactor(pref.getWallpaperBlurFactorThreshold().get())
-                .radius(pref.getWallpaperBlur().get())
-                .blur(originalBitmap);
-
-        setBackground(new BitmapDrawable(getContext().getResources(), blurredBitmap));
+        ViewCompat.postOnAnimation(this,
+                () -> blurWallpaperAsync(context, generation, width, height, sampleFactor, radius));
     }
 
-    private Drawable getScaledWallpaperDrawable(int width, int height) {
-        WallpaperManager wallpaperManager = WallpaperManager.getInstance(getContext());
-        Drawable wallpaperDrawable = wallpaperManager.getDrawable();
-
-        if (wallpaperDrawable != null) {
-            Bitmap originalBitmap = Bitmap.createBitmap(
-                    width, height, Bitmap.Config.ARGB_8888
-            );
-            Canvas canvas = new Canvas(originalBitmap);
-
-            wallpaperDrawable.setBounds(0, 0, width, height);
-            wallpaperDrawable.draw(canvas);
-
-            return new BitmapDrawable(getContext().getResources(), originalBitmap);
+    private void blurWallpaperAsync(
+            Context context, int generation, int width, int height, int sampleFactor, int radius) {
+        if (mBlurGeneration.get() != generation) {
+            return;
         }
-        return null;
+        UI_HELPER_EXECUTOR.execute(() -> {
+            if (mBlurGeneration.get() != generation) {
+                return;
+            }
+            Drawable wallpaper = WallpaperManager.getInstance(context).getDrawable();
+            if (wallpaper == null) {
+                return;
+            }
+
+            // Reuse a single full-screen bitmap for both the wallpaper and the white scrim.
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            try {
+                Canvas canvas = new Canvas(bitmap);
+                wallpaper.setBounds(0, 0, width, height);
+                wallpaper.draw(canvas);
+
+                Paint paint = new Paint();
+                paint.setColor(Color.WHITE);
+                paint.setAlpha((int) (0.2 * 255));
+                canvas.drawRect(0, 0, width, height, paint);
+
+                Bitmap blurredBitmap = HokoBlur.with(context)
+                        .forceCopy(true)
+                        .scheme(HokoBlur.SCHEME_OPENGL)
+                        .sampleFactor(sampleFactor)
+                        .radius(radius)
+                        .blur(bitmap);
+
+                final Bitmap result = blurredBitmap;
+                MAIN_EXECUTOR.execute(() -> {
+                    if (mBlurGeneration.get() == generation && isAttachedToWindow()) {
+                        setBackground(new BitmapDrawable(getContext().getResources(), result));
+                    }
+                });
+            } catch (RuntimeException ignored) {
+                // Keep the existing background if the wallpaper or blur cannot be processed.
+            }
+        });
     }
 
     private void handleSystemWindowInsets(Rect insets) {
@@ -187,6 +208,13 @@ public class LauncherRootView extends InsettableFrameLayout {
         if (mWindowStateListener != null) {
             mWindowStateListener.onWindowVisibilityChanged(visibility);
         }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        // Invalidate any in-flight blur so it cannot install a stale background on a dead view.
+        mBlurGeneration.incrementAndGet();
+        super.onDetachedFromWindow();
     }
 
     @Override

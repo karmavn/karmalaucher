@@ -37,21 +37,36 @@ class DoubleShadowIconDrawable(icon: Drawable, context: Context) : LayerDrawable
         val keyShadowDx = res.getDimensionPixelSize(R.dimen.key_text_shadow_dx).toFloat()
         val keyShadowDy = res.getDimensionPixelSize(R.dimen.key_text_shadow_dy).toFloat()
         val alphaOffset = IntArray(2)
-        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        val alphaPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        // The two passes used two separate Paint objects with identical flags. Reuse a single
+        // paint, resetting the fields each pass, so the result is pixel-for-pixel the same.
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         if (ambientShadowRadius != 0f) {
-            shadowPaint.maskFilter = BlurMaskFilter(ambientShadowRadius, BlurMaskFilter.Blur.NORMAL)
-            val alphaBitmap = iconBitmap.extractAlpha(shadowPaint, alphaOffset)
-            alphaPaint.alpha = 64
-            canvas.drawBitmap(alphaBitmap, alphaOffset[0].toFloat(), alphaOffset[1].toFloat(), alphaPaint)
+            drawBlurShadow(iconBitmap, canvas, paint, alphaOffset, ambientShadowRadius, 64, 0f, 0f)
         }
         if (keyShadowRadius != 0f) {
-            shadowPaint.maskFilter = BlurMaskFilter(keyShadowRadius, BlurMaskFilter.Blur.NORMAL)
-            val alphaBitmap = iconBitmap.extractAlpha(shadowPaint, alphaOffset)
-            alphaPaint.alpha = 72
-            canvas.drawBitmap(alphaBitmap, alphaOffset[0].toFloat() + keyShadowDx, alphaOffset[1].toFloat() + keyShadowDy, alphaPaint)
+            drawBlurShadow(iconBitmap, canvas, paint, alphaOffset, keyShadowRadius, 72, keyShadowDx, keyShadowDy)
         }
         return BitmapDrawable(context.resources, shadowBitmap)
+    }
+
+    private fun drawBlurShadow(
+        source: Bitmap,
+        canvas: Canvas,
+        paint: Paint,
+        alphaOffset: IntArray,
+        radius: Float,
+        alpha: Int,
+        dx: Float,
+        dy: Float,
+    ) {
+        // extractAlpha is driven by the mask filter; an opaque paint reproduces the old
+        // dedicated blur paint. The old draw paint had no mask filter and a fixed alpha.
+        paint.alpha = 255
+        paint.maskFilter = BlurMaskFilter(radius, BlurMaskFilter.Blur.NORMAL)
+        val alphaBitmap = source.extractAlpha(paint, alphaOffset)
+        paint.maskFilter = null
+        paint.alpha = alpha
+        canvas.drawBitmap(alphaBitmap, alphaOffset[0].toFloat() + dx, alphaOffset[1].toFloat() + dy, paint)
     }
 
     override fun setTint(tintColor: Int) {

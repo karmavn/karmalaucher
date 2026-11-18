@@ -160,3 +160,18 @@ Mục tiêu: tiệm cận cảm giác "đẹp và mượt" của iOS mà vẫn g
 
 **Kiểm chứng:** so sánh diff từng tệp, đảm bảo không còn import thừa và không đổi logic đầu vào/đầu ra. Không build/đo local do máy thiếu Android SDK; biên dịch và kiểm tra được ủy quyền cho GitHub Actions (push branch `*-dev` hoặc PR).
 
+---
+
+## 8. Wave 2 — tấn công các chi phí lớn hơn
+
+Sau khi chốt wave 1, triển khai tiếp 4 hạng mục có tác động lớn hơn. Vẫn không build/đo local; CI là cổng biên dịch.
+
+| # | Tệp | Vấn đề | Cách sửa | Rủi ro |
+|:-:|:--|:--|:--|:--|
+| 36 | `src/com/android/launcher3/LauncherRootView.java` | Blur wallpaper chạy **đồng bộ trên main thread** lúc inflate: binder `WallpaperManager.getDrawable()`, 2 bitmap full-screen + HokoBlur OpenGL, peak ~25–35 MB ngay cold-start. | Dời blur sang `UI_HELPER_EXECUTOR`, khởi động sau first draw qua `ViewCompat.postOnAnimation`; gộp chung 1 bitmap cho wallpaper + scrim trắng 20%; writeback background trên `MAIN_EXECUTOR`; generation token + `onDetachedFromWindow` để bỏ kết quả cũ. Giữ nguyên sample factor, radius, scheme. | Trung bình — cần smoke test trên máy thật để xác nhận blur OpenGL chạy tốt trên thread nền và ảnh cuối cùng giống hệt |
+| 37 | `preferences2/PreferenceManager2.kt` | `cachedPreferences = runBlocking { data.first() }` chặn main thread lúc khởi tạo singleton. | Đổi sang `emptyPreferences()` rồi để collector có sẵn điền vào; đổi `drop(1)` thành `dropWhile { it == initialShape }` để shape đã lưu vẫn được áp dụng. **Phần remote-default đã thử chuyển async nhưng bị revert**: 2 preference search provider lấy default lúc khởi tạo, nên cache async sẽ làm mất override từ server — giữ lại `firstBlocking()` cho riêng phần này. | Thấp–Trung bình — frame đầu dùng default resource rồi cập nhật |
+| 38 | `smartspace/BcSmartspaceCard.kt`, `DoubleShadowIconDrawable.kt`, `nexuslauncher/ThemedSmartSpaceHostView.kt` | Mỗi lần refresh tạo ~40 bitmap cho shadow/icon, không cache. | LRU 16 drawable theo `(slot, action.id, icon token, tint, size)`; icon mutable dùng identity hash nên luôn miss (không bao giờ hiện ảnh cũ); clear lúc detach/config change. Gộp 2 `Paint` thành 1 nhưng reset trạng thái từng pass (kết quả pixel giữ nguyên). Host weather cache cặp `(source, shadow)` theo identity. | Trung bình — cần kiểm tra thị giác tint/shadow sau đổi theme |
+| 39 | `LawnchairLauncher.kt`, `baseline-profile/.../StartupBenchmarks.kt` | Benchmark không đợi home screen vẽ xong, `reportFullyDrawn` không được gọi ở đâu cả. | Gọi `reportFullyDrawn()` một lần trong `bindComplete()` sau `post` để frame đầu đã vẽ; benchmark dùng UiAutomator đợi resource `workspace` rồi `waitForIdle`. | Thấp —UiAutomator chỉ đợi proxy, không đợi trực tiếp tín hiệu `reportFullyDrawn`; cần chạy benchmark trên máy thật để thấy `timeToFullDisplayMs` |
+
+**Giới hạn trung thực:** CI chỉ biên dịch + `spotlessCheck`, repo không có job unit test hay benchmark. Các nhận định về "giảm RAM/jank" ở mục 7–8 là lập luận mã nguồn, chưa có số đo trên thiết bị. Blur OpenGL trên thread nền và cân bằng thị giác của shadow cache cần smoke test trên máy thật trước khi merge vào `16-dev`.
+
