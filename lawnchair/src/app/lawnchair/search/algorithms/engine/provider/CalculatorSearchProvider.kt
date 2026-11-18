@@ -40,6 +40,8 @@ object CalculatorSearchProvider : SearchProvider {
         query: String,
     ): Calculation {
         return try {
+            // Expressions owns a mutable variable table, so a fresh instance per query keeps
+            // assignments in one keystroke from leaking into the next one.
             val evaluatedValue = Expressions().eval(query)
             val roundedValue = evaluatedValue.round(MathContext.DECIMAL64)
             val formattedValue = roundedValue.stripTrailingZeros()

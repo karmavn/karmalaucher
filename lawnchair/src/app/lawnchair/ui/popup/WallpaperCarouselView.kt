@@ -43,6 +43,8 @@ class WallpaperCarouselView @JvmOverloads constructor(
     private val viewModel = WallpaperViewModel(launcher.application)
     private val deviceProfile = launcher.deviceProfile
     private var currentItemIndex = 0
+    private var wallpapers: List<Wallpaper>? = null
+    private val displayRunnable = Runnable { wallpapers?.let(::displayWallpapers) }
     private val iconFrame = IconFrame(context).apply {
         setIcon(R.drawable.ic_tick)
         setBackgroundWithRadius(Themes.getColorAccent(context), 100F)
@@ -57,10 +59,13 @@ class WallpaperCarouselView @JvmOverloads constructor(
     }
 
     private fun observeWallpapers() {
-        viewModel.wallpapers.observeOnce(context as LifecycleOwner) { wallpapers ->
-            visibility = if (wallpapers.isEmpty()) GONE else VISIBLE
-            loadingView.visibility = if (wallpapers.isEmpty()) GONE else VISIBLE
-            if (wallpapers.isNotEmpty()) displayWallpapers(wallpapers)
+        viewModel.wallpapers.observeOnce(context as LifecycleOwner) { loadedWallpapers ->
+            wallpapers = loadedWallpapers
+            visibility = if (loadedWallpapers.isEmpty()) GONE else VISIBLE
+            loadingView.visibility = if (loadedWallpapers.isEmpty()) GONE else VISIBLE
+            if (loadedWallpapers.isEmpty()) return@observeOnce
+            // Wait for the first layout so thumbnails are decoded once at their real size.
+            if (width > 0) displayWallpapers(loadedWallpapers) else post(displayRunnable)
         }
     }
 
@@ -85,6 +90,7 @@ class WallpaperCarouselView @JvmOverloads constructor(
     }
 
     private fun calculateItemWidth(totalWidth: Int, itemCount: Int, firstItemWidth: Double): Double {
+        if (itemCount <= 1) return firstItemWidth
         val remainingWidth = totalWidth - firstItemWidth
         val marginBetweenItems = totalWidth * 0.03
         return (remainingWidth - (marginBetweenItems * (itemCount - 1))) / (itemCount - 1)
@@ -134,8 +140,11 @@ class WallpaperCarouselView @JvmOverloads constructor(
      */
     private fun decodeSampledWallpaper(path: String, reqWidth: Int, reqHeight: Int): Bitmap? {
         val file = File(path).takeIf { it.exists() } ?: return null
-        if (reqWidth <= 0) return BitmapFactory.decodeFile(file.path)
-        return decodeSampledBitmapFromFile(file.path, reqWidth, reqHeight)
+        val targetWidth = reqWidth.takeIf { it > 0 }
+            ?: (deviceProfile.deviceProperties.widthPx / 3).coerceAtLeast(1)
+        val targetHeight = reqHeight.takeIf { it > 0 }
+            ?: deviceProfile.deviceProperties.heightPx.coerceAtLeast(1)
+        return decodeSampledBitmapFromFile(file.path, targetWidth, targetHeight)
     }
 
     private fun addImageView(cardView: CardView, bitmap: Bitmap?, isCurrent: Boolean) {
@@ -199,12 +208,18 @@ class WallpaperCarouselView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        // View.removeCallbacks also clears the pre-attach HandlerActionQueue; View.handler can be
+        // null in that case, so removeCallbacks on it would miss the runnable posted in init.
+        removeCallbacks(displayRunnable)
         viewScope.cancel()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        viewModel.wallpapers.value?.let { displayWallpapers(it) }
+        // The first layout (oldw == 0) must not trigger a second decode of every wallpaper.
+        if (oldw > 0 && (w != oldw || h != oldh)) {
+            wallpapers?.let(::displayWallpapers)
+        }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

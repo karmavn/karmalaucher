@@ -317,11 +317,23 @@ class NovaBackupConverter(
             null,
         ).use { cursor ->
             val now = System.currentTimeMillis()
+            val colId = cursor.getColumnIndexOrThrow(NOVA_COL_ID)
+            val colContainer = cursor.getColumnIndexOrThrow(NOVA_COL_CONTAINER)
+            val colItemType = cursor.getColumnIndexOrThrow(NOVA_COL_ITEM_TYPE)
+            val colTitle = cursor.getColumnIndex(NOVA_COL_TITLE)
+            val colIntent = cursor.getColumnIndex(NOVA_COL_INTENT)
+            val colCellX = cursor.getColumnIndexOrThrow(NOVA_COL_CELL_X)
+            val colCellY = cursor.getColumnIndexOrThrow(NOVA_COL_CELL_Y)
+            val colScreen = cursor.getColumnIndexOrThrow(NOVA_COL_SCREEN)
+            val colSpanX = cursor.getColumnIndexOrThrow(NOVA_COL_SPAN_X)
+            val colSpanY = cursor.getColumnIndexOrThrow(NOVA_COL_SPAN_Y)
+            val colIcon = cursor.getColumnIndex(NOVA_COL_ICON)
+            val colAppWidgetProvider = cursor.getColumnIndex(NOVA_COL_APP_WIDGET_PROVIDER)
 
             while (cursor.moveToNext()) {
-                val novaId = cursor.getInt(cursor.getColumnIndexOrThrow(NOVA_COL_ID))
-                val novaContainer = cursor.getInt(cursor.getColumnIndexOrThrow(NOVA_COL_CONTAINER))
-                val itemType = cursor.getInt(cursor.getColumnIndexOrThrow(NOVA_COL_ITEM_TYPE))
+                val novaId = cursor.getInt(colId)
+                val novaContainer = cursor.getInt(colContainer)
+                val itemType = cursor.getInt(colItemType)
 
                 val isDesktop = novaContainer == NOVA_CONTAINER_DESKTOP
                 val isHotseat = novaContainer == NOVA_CONTAINER_HOTSEAT
@@ -337,7 +349,7 @@ class NovaBackupConverter(
                     else -> novaContainer
                 }
 
-                val title = getStringOrNull(cursor, NOVA_COL_TITLE)
+                val title = getStringOrNull(cursor, colTitle)
                 /* TODO: Lawnchair folder synchronization support
                  *        For nova parity:
                  *           Sync folder contents from allapps to workspace, or workspace to allapps
@@ -345,7 +357,7 @@ class NovaBackupConverter(
                  *           Check folder with intent: #Intent;component=com.teslacoilsw.launcher/FOLDER%3A-20X;end
                  *           X being category ID that are defined in drawer_group table
                  */
-                val rawIntent = getStringOrNull(cursor, NOVA_COL_INTENT)
+                val rawIntent = getStringOrNull(cursor, colIntent)
                 val importedDeepShortcut = if (itemType == Favorites.ITEM_TYPE_DEEP_SHORTCUT) {
                     parseNovaDeepShortcut(rawIntent)?.also { shortcut ->
                         importedDeepShortcuts.getOrPut(shortcut.packageName) { mutableSetOf() }
@@ -355,13 +367,13 @@ class NovaBackupConverter(
                     null
                 }
                 val intent = importedDeepShortcut?.toLauncherIntentUri() ?: rawIntent
-                val cellX = cursor.getDouble(cursor.getColumnIndexOrThrow(NOVA_COL_CELL_X)).toInt()
-                val cellY = cursor.getDouble(cursor.getColumnIndexOrThrow(NOVA_COL_CELL_Y)).toInt()
-                val screen = if (isHotseat) cellX else cursor.getInt(cursor.getColumnIndexOrThrow(NOVA_COL_SCREEN))
-                val spanX = cursor.getDouble(cursor.getColumnIndexOrThrow(NOVA_COL_SPAN_X)).toInt().coerceAtLeast(1)
-                val spanY = cursor.getDouble(cursor.getColumnIndexOrThrow(NOVA_COL_SPAN_Y)).toInt().coerceAtLeast(1)
-                val icon = getBlobOrNull(cursor, NOVA_COL_ICON)
-                val appWidgetProvider = getStringOrNull(cursor, NOVA_COL_APP_WIDGET_PROVIDER)
+                val cellX = cursor.getDouble(colCellX).toInt()
+                val cellY = cursor.getDouble(colCellY).toInt()
+                val screen = if (isHotseat) cellX else cursor.getInt(colScreen)
+                val spanX = cursor.getDouble(colSpanX).toInt().coerceAtLeast(1)
+                val spanY = cursor.getDouble(colSpanY).toInt().coerceAtLeast(1)
+                val icon = getBlobOrNull(cursor, colIcon)
+                val appWidgetProvider = getStringOrNull(cursor, colAppWidgetProvider)
                 val rank = when {
                     isFolderChild || isSmartFolderChild -> calculateFolderRank(screen, cellX, cellY)
                     isHotseat -> screen
@@ -425,11 +437,19 @@ class NovaBackupConverter(
 
     private fun getStringOrNull(cursor: android.database.Cursor, column: String): String? {
         val idx = cursor.getColumnIndex(column)
+        return getStringOrNull(cursor, idx)
+    }
+
+    private fun getStringOrNull(cursor: android.database.Cursor, idx: Int): String? {
         return if (idx >= 0 && !cursor.isNull(idx)) cursor.getString(idx) else null
     }
 
     private fun getBlobOrNull(cursor: android.database.Cursor, column: String): ByteArray? {
         val idx = cursor.getColumnIndex(column)
+        return getBlobOrNull(cursor, idx)
+    }
+
+    private fun getBlobOrNull(cursor: android.database.Cursor, idx: Int): ByteArray? {
         return if (idx >= 0 && !cursor.isNull(idx)) cursor.getBlob(idx) else null
     }
 

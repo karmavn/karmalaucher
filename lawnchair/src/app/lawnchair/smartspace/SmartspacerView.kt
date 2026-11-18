@@ -10,9 +10,9 @@ import androidx.viewpager.widget.ViewPager
 import app.lawnchair.LawnchairLauncher
 import app.lawnchair.launcher
 import app.lawnchair.preferences2.PreferenceManager2
-import app.lawnchair.preferences2.subscribeBlocking
 import app.lawnchair.ui.preferences.PreferenceActivity
 import app.lawnchair.ui.preferences.navigation.Smartspace
+import app.lawnchair.util.firstCached
 import com.android.launcher3.R
 import com.android.launcher3.logging.StatsLogManager
 import com.android.launcher3.views.OptionsPopupView
@@ -23,19 +23,17 @@ import com.kieronquinn.app.smartspacer.sdk.client.views.popup.PopupFactory
 import com.kieronquinn.app.smartspacer.sdk.model.SmartspaceConfig
 import com.kieronquinn.app.smartspacer.sdk.model.SmartspaceTarget
 import com.kieronquinn.app.smartspacer.sdk.model.UiSurface
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 
 class SmartspacerView(context: Context, attrs: AttributeSet?) : BcSmartspaceView(context, attrs) {
     private lateinit var viewPager: ViewPager
     private val prefs2 = PreferenceManager2.getInstance(context)
-    private val coroutineScope = CoroutineScope(Dispatchers.Default)
     private var targetCount = 5
 
     init {
-        prefs2.smartspacerMaxCount.subscribeBlocking(prefs2 = prefs2, scope = coroutineScope) {
-            targetCount = it
-        }
+        // `config` is fixed at construction, so read the cached value synchronously. A live
+        // collector would only leak a subscriber on every activity recreate, since changing this
+        // preference already recreates the activity (see PreferenceManager2.onSet).
+        targetCount = prefs2.smartspacerMaxCount.firstCached(prefs2)
 
         popupFactory = object : PopupFactory {
             override fun createPopup(

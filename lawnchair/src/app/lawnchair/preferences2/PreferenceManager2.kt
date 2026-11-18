@@ -96,7 +96,7 @@ class PreferenceManager2 @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val resourceProvider = DynamicResource.provider(context)
-    private var liveInformationManager: LiveInformationManager =
+    private val liveInformationManager: LiveInformationManager =
         LiveInformationManager.getInstance(context)
 
     private fun idpPreference(
@@ -982,6 +982,8 @@ class PreferenceManager2 @Inject constructor(
         scope.cancel()
     }
 
+    // Keep this synchronous: the two search-provider preferences capture their default at
+    // construction, so an async remote cache would silently drop server-side overrides.
     private fun getRemoteDefault(key: String): String? = liveInformationManager.liveInformation
         .firstBlocking()
         .features[key]

@@ -426,7 +426,6 @@ dependencies {
     coreLibraryDesugaring libs.android.desugarJdkLibs
 
     implementation libs.androidx.profileinstaller
-    baselineProfile projects.baselineProfile
 
     implementation libs.androidx.recyclerview
     implementation libs.androidx.preference.ktx

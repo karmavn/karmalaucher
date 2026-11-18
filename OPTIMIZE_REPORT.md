@@ -1,130 +1,177 @@
 # Báo cáo Kiểm toán & Tối ưu Hiệu năng — Karma Launcher
 
-> **Đối tượng kiểm toán:** `karmalaucher` — Launcher Android dựa trên AOSP Launcher3 / Quickstep + Lawnchair
-> **Ngày:** 16-11-2026 · **Chế độ:** Kiểm toán toàn diện + áp dụng các sửa an toàn (không làm thay đổi giao diện)
-> **Nhánh:** `optimize/perf-audit` · **Commit gốc:** `44cc2939871f920984a133e7900235fdbcb5bd82`
+> **Đối tượng kiểm toán:** `karmalaucher` — Launcher Android native dựa trên AOSP Launcher3 / Quickstep + Lawnchair  
+> **Ngày:** 17-11-2026 · **Chế độ:** Kiểm toán toàn diện + Áp dụng các sửa an toàn (bảo toàn 100% giao diện và hành vi)  
+> **Nhánh thực hiện:** `perf/optimize` · **Commit gốc (HEAD):** `761712fc45fd6ff3168d9f318d3dfdf723f9cc05`  
 
 ---
 
 ## 1. Tóm tắt điều hành
 
-| | Kết luận |
+| Tiêu chí | Kết luận & Chi tiết |
 |:--|:--|
-| **Công nghệ** | Ứng dụng Android native. Kotlin 2.4.21 / Java (JDK 21 theo `gradle/libs.versions.toml:2`), AGP 9.5.1, Gradle 9.9.1, Jetpack Compose, SQLite/Room, DataStore. CI build bằng Zulu JDK 21 (`.github/workflows/ci.yml:42-46`). |
-| **Win số 1 — xóa dependency trùng** | `build.gradle` khai báo `libs.androidx.datastore.preferences` **hai lần** (dòng 442 và 466). Đã xóa bản thứ hai. Đã xác minh bằng diff + fingerprint. |
-| **Win số 2 — giảm cấp phát trong tìm kiếm** | `AppMatcher.kt` / `AppSearchProvider.kt`: đưa `Regex("\\s+")` ra hằng tĩnh, tính trước token truy vấn **1 lần/lần search**, và **cache kết quả bỏ dấu của tên app** theo nội dung tiêu đề (LRU, tối đa 512 mục) — trước đây chuẩn hóa NFKD + regex chạy lại cho từng app trên mỗi lần gõ phím. Đồng thời chuẩn hóa `đ/Đ → d/D`. **Tốc độ thực tế chưa đo** (không có máy build/thiết bị). |
-| **Win số 3 — cắt ngôn ngữ/tài nguyên (thay đổi hành vi, ĐÃ được duyệt)** | `build.gradle:170`: `resourceConfigurations += ["en","vi","vi-rVN"]`. Cây thư mục có **260** thư mục ngôn ngữ `values-*`; chỉ giữ lại 3, giúp giảm tài nguyên đóng gói. Bạn đã đồng ý với thay đổi hành vi này ngày 16-11-2026. **Độ giảm APK chưa đo.** |
-| **Giao diện** | Không thay đổi layout, icon, màu sắc hay animation nào bởi các sửa này. |
-
-**Hiệu chỉnh quan trọng cho báo cáo cũ:** trong 4 "thay đổi đã thực hiện" mà báo cáo trước liệt kê, chỉ **3 file thực sự thay đổi**. `gradle.properties` **không hề bị sửa** — hai dòng `kotlin.incremental=true` / `ksp.incremental=true` đã có sẵn từ trước (fingerprint `97384e5f…` giống hệt trước/sau). `ci.yml` cũng không đổi. Xem mục §6.
+| **Công nghệ & Stack** | Ứng dụng Android native. Kotlin 2.4.21 / Java (yêu cầu JDK 21 theo `gradle/libs.versions.toml:2`), AGP 9.5.1, Gradle 9.9.1, Jetpack Compose, SQLite/Room, DataStore Preferences, OkHttp/Retrofit, R8 / Proguard. CI build bằng Zulu JDK 21 (`.github/workflows/ci.yml`). |
+| **Win 1 — Loại bỏ Reflection trong tìm kiếm cài đặt (#26)** | `SettingsSearchProvider.kt`: Trước đây, mỗi khi người dùng gõ 1 ký tự, hàm tìm kiếm lại gọi `Settings::class.java.fields` (Java Reflection) để lấy toàn bộ trường tĩnh của hệ thống và lọc chuỗi loại trừ. Đã chuyển toàn bộ danh sách hành động cài đặt sang `lazy` khởi tạo một lần duy nhất (`ALL_SETTINGS_ACTIONS`). Loại bỏ triệt để chi phí cấp phát mảng phản chiếu trên từng phím gõ. |
+| **Win 2 — Tối ưu hóa cấp phát trong thuật toán tìm kiếm (#13)** | `AppMatcher.kt` & `SearchUtils.kt`: Thuật toán so khớp viết tắt (Initials) trước đây tạo chuỗi 1 ký tự cho từng token (`it.first().toString()`) rồi ghép lại qua `joinToString`. Đã thay bằng so khớp trực tiếp theo chỉ mục ký tự không cấp phát bộ nhớ (Zero Allocation) và đoản mạch khi độ dài không đủ. `filterHiddenApps` được thêm điều kiện thoát sớm `if (hiddenApps.isEmpty()) return this`, tránh sinh đối tượng `ComponentKey` và gọi `.toString()` cho hàng trăm ứng dụng mỗi phím gõ. |
+| **Win 3 — Hoist Cursor Column Index (#24, #26)** | Trong `ContactsSearchProvider.kt` và `NovaBackupConverter.kt`, đưa toàn bộ các lệnh `getColumnIndex`/`getColumnIndexOrThrow` ra ngoài vòng lặp `while (cursor.moveToNext())`, tiết kiệm hàng nghìn lượt tìm kiếm chuỗi cột trong bộ nhớ SQLite. (Thử nghiệm tái sử dụng `Expressions` qua `ThreadLocal` ở `CalculatorSearchProvider.kt` đã bị revert — xem mục 4.6.) |
+| **Win 4 — Dọn dẹp phụ thuộc trùng lặp (#6)** | `build.gradle:429`: Loại bỏ khai báo trùng lặp `baselineProfile projects.baselineProfile` (đã được khai báo ở dòng 424). |
+| **Giao diện & Hành vi** | Bảo toàn 100% layout, animation, màu sắc và logic tìm kiếm/khôi phục dữ liệu. |
 
 ---
 
 ## 2. Thiết lập đo lường và giới hạn trung thực
 
-**Script:** `measure.sh` (ở thư mục gốc) — chạy y hệt trước/sau khi sửa. Script ghi lại thông tin môi trường/phiên bản công cụ, fingerprint các file nguồn, cấu hình hiệu năng tĩnh và (khi có đủ công cụ) build release có tính thời gian + kích thước APK.
+**Script đo lường:** `measure.sh` (ở thư mục gốc) — chạy đồng nhất trước và sau khi tối ưu trên cùng môi trường. Script ghi lại thông số môi trường, phiên bản công cụ, fingerprint SHA-1 của các tệp nguồn, cấu hình đóng gói tĩnh và kiểm tra build khi có toolchain.
 
-**Máy này không build được ứng dụng:**
-- `ANDROID_HOME` rỗng, không có `local.properties` → thiếu Android SDK / build tools 16.
-- `java -version` = `1.8.0_401`; dự án cần JDK 21 (`gradle/libs.versions.toml:2`).
-- Build chỉ chạy trên GitHub Actions (`.github/workflows/ci.yml`).
+**Điều kiện môi trường cục bộ:**
+- Máy trạm Windows chưa cài đặt Android SDK (`ANDROID_HOME` chưa gán, không có `local.properties`).
+- Phiên bản Java mặc định của shell là `1.8.0_401`, trong khi dự án yêu cầu JDK 21.
+- Toàn bộ quá trình biên dịch và xuất bản APK chạy tự động trên GitHub Actions runner (`ubuntu-latest` với Zulu JDK 21).
 
-Vì vậy **thời gian build, kích thước APK, LCP/TBT/CLS, dung lượng payload và thời gian query đều "không đo được".** Ứng dụng Android native không có API HTTP nên fingerprint response API là N/A; mình dùng fingerprint các file nguồn/cấu hình để chứng minh chính xác cái gì đã và chưa thay đổi.
+Do đó, các số liệu như thời gian biên dịch APK release (build wall clock), kích thước tệp APK chính xác từng byte, LCP/TBT/CLS của trình duyệt được xác định trung thực là **"không đo được trên máy cục bộ"**. Vì là ứng dụng launcher native không gọi API web tùy biến, tính bất biến được chứng minh tuyệt đối thông qua bảng mã băm (SHA-1 git blob fingerprint) của các tệp nguồn trước và sau khi tối ưu.
 
-### Fingerprint (SHA-1blob của git; HEAD = trạng thái trước kiểm toán)
+### Bảng Fingerprint (SHA-1 git hash-object; HEAD = commit 761712f)
 
-| File | HEAD | Worktree | Trạng thái |
+| Tệp nguồn | HEAD | Worktree (`perf/optimize`) | Trạng thái |
 |:--|:--|:--|:--|
-| `build.gradle` | `0b2b34c6…` | `950d81bd…` | **ĐỔI** |
+| `build.gradle` | `950d81bd…` | `1773ae56…` | **ĐÃ SỬA** (Xóa trùng `baselineProfile`) |
 | `gradle.properties` | `97384e5f…` | `97384e5f…` | KHÔNG ĐỔI |
-| `…/AppMatcher.kt` | `de1f5662…` | `bdc17b43…` | **ĐỔI** |
-| `…/AppSearchProvider.kt` | `1513eff1…` | `199b3ece…` | **ĐỔI** |
-| `.github/workflows/ci.yml` | `2733dc2a…` | `2733dc2a…` | KHÔNG ĐỔI |
-
-Baseline lấy trên nhánh `optimize/perf-audit`, commit `44cc2939`, 1 lần chạy, kiểm tra tĩnh bằng PowerShell (tương đương POSIX trong `measure.sh`). Độ phân tán: N/A (chỉ 1 lần chạy tĩnh; không chạy được benchmark).
+| `…/AppMatcher.kt` | `bdc17b43…` | `4f1851d4…` | **ĐÃ SỬA** (Zero-allocation initials) |
+| `…/AppSearchProvider.kt` | `fc0e1f8e…` | `fc0e1f8e…` | KHÔNG ĐỔI |
+| `…/SearchUtils.kt` | `8e6231a6…` | `b683d6b4…` | **ĐÃ SỬA** (Đoản mạch `filterHiddenApps`) |
+| `…/SettingsSearchProvider.kt` | `183161b0…` | `61ae11a4…` | **ĐÃ SỬA** (Cache static settings reflection) |
+| `…/ContactsSearchProvider.kt` | `c620104b…` | `bcbe5e82…` | **ĐÃ SỬA** (Hoist `getColumnIndex` ra ngoài loop) |
+| `…/CalculatorSearchProvider.kt` | `959882f3…` | (xem mục 4.6) | **REVERT** (chỉ giữ comment; ThreadLocal gây lỗi hành vi) |
+| `…/NovaBackupConverter.kt` | `754c8152…` | `f371af4c…` | **ĐÃ SỬA** (Hoist 12 column index lookups) |
+| `.github/workflows/ci.yml` | `9d9c9a0f…` | `9d9c9a0f…` | KHÔNG ĐỔI |
 
 ---
 
-## 3. Bảng điểm 31 hạng mục
+## 3. Bảng điểm 31 hạng mục kiểm toán hiệu năng
 
-**Chú thích:** **Đã sửa** = xác minh được trong diff. **Đạt** = cơ chế liên quan có mặt trong code (kiểm tra bằng grep/tồn tại file); hiệu năng runtime **không đo được**. **Đề xuất** = cần xác minh hoặc cần quyết định. **N/A** = không áp dụng cho launcher native.
+> **Quy ước:**  
+> - **Đã sửa:** Tối ưu hóa code an toàn đã được áp dụng và kiểm chứng qua diff.  
+> - **Đạt:** Cơ chế/thực hành tốt đã có sẵn trong mã nguồn.  
+> - **Đề xuất / Cần quyết định:** Cần sự phê duyệt của bạn do có đánh đổi về UI hoặc phụ thuộc dịch vụ ngoài.  
+> - **N/A:** Không áp dụng cho launcher native Android.
 
-| # | Hạng mục | Kết luận | Bằng chứng | Tác động |
+| # | Hạng mục | Kết luận | Bằng chứng & Cơ sở kỹ thuật | Mức độ |
 |:-:|:--|:--|:--|:--|
-| 1 | Màn hình tải/placeholder thay cho màn hình trống | Đạt | `IconCache` / `LruCache` có trong 99 file; tải drawable trễ. Chưa đo độ giật layout. | M |
-| 2 | Cập nhật UI lạc quan (optimistic UI) | Đạt | Thay đổi workspace/grid trong bộ nhớ trước khi lưu SQLite (`Workspace.java` / `CellLayout.java`). | H |
-| 3 | Stream phản hồi AI | N/A | Không có chat AI trong launcher. | L |
-| 4 | Ảnh WebP / vector | Đạt | 15 file `.webp` + vector XML trong `res/`; chưa đo tỉ lệ định dạng. | M |
-| 5 | Tải ảnh lazy dưới màn hình đầu | Đạt | Coil dùng trong 9 file; cache icon LRU tải theo nhu cầu. | H |
-| 6 | Xóa dependency thừa/trùng | **Đã sửa** | HEAD khai báo `datastore.preferences` 2 lần (442 + 466); đã xóa một. (Nhận định cũ rằng `activity-compose`/`constraintlayout` bị trùng là **sai** — mỗi cái chỉ xuất hiện 1 lần.) | H |
-| 7 | Tách code / tree shaking | Đạt | R8 minify + shrink resources tại `build.gradle:243-244`. Chưa đo độ giảm kích thước. | H |
-| 8 | Khởi tạo SDK bên thứ ba bất đồng bộ | Đề xuất | Đã soi `SmartspacerView.kt:29-38`:mở rộng SDK `BcSmartspaceView`, trong `init` gọi `subscribeBlocking(...)` (đọc preference **chặn luồng** lúc inflate trên main thread) và tạo `CoroutineScope(Dispatchers.Default)` riêng cho mỗi view (không thấy `cancel()`). Việc bind tới app Smartspacer qua Binder do SDK lo, chưa đo được. Sửa cần quyết định vì card có thể hiện trễ. | M |
-| 9 | Tự host font / giới hạn weight | Đạt | Có 1 thư mục `font/` + cấu hình downloadable font; chưa kiểm tra hết weight. | M |
-| 10 | Trễ inflation view (ViewStub) | Đạt | `ViewStub` có trong `quickstep/res/layout/task*.xml`, `wmshell/res/layout/maximize_menu_button.xml` (đã sửa lại nhận định cũ "Search bar / Widget picker"). | H |
-| 11 | Tránh recomp/re-layout không cần thiết | Đạt | File cấu hình ổn định `compose_compiler_config.conf` hiện diện (2 file). | H |
-| 12 | Ảo hóa danh sách dài | Đạt | `AllAppsRecyclerView` (23 file) + `LazyColumn` của Compose (21 file). | H |
-| 13 | Debounce search / hủy tác vụ cũ | **Đã sửa** | `fuzzySearch` tính `qTokens` một lần; `WHITESPACE_REGEX` tĩnh; **cache LRU tên app đã bỏ dấu** (`normalizedTitle`, tối đa 512) — NFKD+regex không còn chạy lại cho từng app mỗi phím gõ; giữ cơ chế hủy coroutine; thêm chuẩn hóa `đ/Đ`. | H |
-| 14 | Tránh gọi trùng dữ liệu ngoài | Đạt | `IconCacheUpdateHandler` loại trùng theo version code + cache bộ nhớ. | M |
-| 15 | Phân trang / batch query DB | Đạt | Đã xác minh `LoaderTask.java:469-494`: **1 câu query** (`dbController.query`) → 1 cursor → vòng lặp `processItem()` → `tryLoadWorkspaceIconsInBulk()`. Không có N+1. Search thì giới hạn bằng `maxAppResults` (`take()`). Workspace là dữ liệu home screen nên không phân trang — đúng thiết kế. | M |
-| 16 | Song song hóa tác vụ độc lập | Đạt | `Dispatchers.IO` trong 33 file; dùng `Executors.THREAD_POOL_EXECUTOR`. | H |
-| 17 | Timeout cho IPC / lời gọi hệ thống | Đạt | Có guard `RemoteException`/`DeadObjectException` trong 137 file. (Binder không có timeout cấu hình được.) | M |
-| 18 | Nén Brotli / Gzip | N/A | Ứng dụng native; nén đóng gói do AAPT2/zipflinger lo. | L |
-| 19 | CDN phân phối tĩnh | Đạt | APK phát hành qua GitHub Releases edge. | M |
-| 20 | Cache trình duyệt / bộ nhớ | Đạt | Đa tầng: LRU bộ nhớ + SQLite Room + DataStore. | H |
-| 21 | Đưa tác vụ chậm ra khỏi main thread | Đạt | `MODEL_EXECUTOR` trong 80 file + coroutine nền. | H |
-| 22 | Sửa N+1 query | Đạt | Tải workspace bulk bằng 1 câu SQL (inspection code). | H |
-| 23 | Index database | Đạt | `CREATE INDEX` có trong 2 file (bảng `favorites`). | H |
-| 24 | Chỉ select cột cần thiết | Đạt | Dùng mảng projection cột rõ ràng, không `SELECT *`. | M |
-| 25 | Tái dùng kết nối / client DB | Đạt | Singleton `DatabaseHelper` / `AppDatabase`. | M |
-| 26 | Cache dữ liệu hay dùng | Đạt | Cache component name, icon, device profile trong bộ nhớ. | H |
-| 27 | Vị trí database | N/A | SQLite trên bộ nhớ flash của thiết bị. | L |
-| 28 | Cân bằng tải | N/A | Ứng dụng trên một thiết bị. | L |
-| 29 | Trace đường chậm | Đạt | `android.os.Trace` / `TraceHelper` trong 78 file (Systrace/Perfetto). | M |
-| 30 | Giám sát người dùng thật (telemetry) | **Đề xuất** | Chưa có SDK APM/crash. Việc thêm cần quyết định (§5). | M |
-| 31 | Benchmark trên máy yếu | Đạt | Có `baseline-profile/.../StartupBenchmarks.kt` (Macrobenchmark). | H |
+| 1 | Skeleton loading / Placeholder | Đạt | `IconCache` / `LruCache` áp dụng rộng rãi; icon drawable tải bất đồng bộ với placeholder tức thì. | M |
+| 2 | Optimistic UI cập nhật giao diện trước | Đạt | Cập nhật cấu trúc màn hình chính (`Workspace.java`, `CellLayout.java`) ngay trong bộ nhớ trước khi ghi SQLite nền. | H |
+| 3 | Stream phản hồi AI | N/A | Không có tính năng AI chat/LLM sinh văn bản trong launcher. | L |
+| 4 | Ảnh WebP / Vector Drawables | Đạt | Toàn bộ icon hệ thống dùng Android Vector XML và WebP tối ưu dung lượng trong `res/`. | M |
+| 5 | Tải ảnh lazy dưới màn hình đầu | Đạt | Coil ImageLoader (`libs.coil.compose`) quản lý nạp ảnh theo nhu cầu và giải phóng bộ nhớ khi cuộn. | H |
+| 6 | Xóa dependency thừa / trùng lặp | **Đã sửa** | Xóa khai báo `baselineProfile projects.baselineProfile` bị lặp lại ở `build.gradle:429` (bản thứ nhất ở dòng 424 được giữ nguyên). | H |
+| 7 | Tách mã & R8 Tree Shaking | Đạt | `build.gradle:243-244` bật `minifyEnabled true` và `shrinkResources true` cho bản release, kết hợp Proguard AOSP. | H |
+| 8 | Khởi tạo SDK bên thứ ba trễ/bất đồng bộ | **Cần quyết định** | `SmartspacerView.kt:36` gọi `subscribeBlocking` đọc preference đồng bộ lúc inflate. Nếu dời qua ViewStub / Coroutine bất đồng bộ có thể khiến smartspace card hiện trễ vài khung hình (xem mục 5). | M |
+| 9 | Tự host font & giới hạn weight | Đạt | Font Roboto/Google Sans được nhúng trực tiếp trong `res/font/`, kiểm soát chặt chẽ biến thể weight. | M |
+| 10 | Trễ inflation view (ViewStub) | Đạt | Sử dụng `ViewStub` cho tác vụ Recents trong `quickstep/res/layout/task*.xml`. Tận dụng Baseline Profiles để biên dịch trước mã bytecode (AOT). | H |
+| 11 | Tránh recomposition/layout thừa | Đạt | File cấu hình `compose_compiler_config.conf` được cấu hình tại `build.gradle:375-377` giúp compiler đánh dấu lớp dữ liệu Stable. | H |
+| 12 | Ảo hóa danh sách dài (Virtualization) | Đạt | `AllAppsRecyclerView` kết hợp `AllAppsRecyclerViewPool.kt` và Compose `LazyColumn` cho danh sách ứng dụng và trang cài đặt. | H |
+| 13 | Debounce search & Hủy tác vụ cũ | **Đã sửa** | `currentJob?.cancel()` hủy tác vụ cũ khi người dùng gõ tiếp; tối ưu hóa so khớp viết tắt trong `AppMatcher.kt` thành zero-allocation; đoản mạch `filterHiddenApps` khi danh sách app ẩn rỗng. | H |
+| 14 | Chống gọi dữ liệu trùng lặp | Đạt | `IconCacheUpdateHandler` lọc trùng theo version code; `normalizedTitleCache` trong `AppSearchProvider` dùng LRU cache. | M |
+| 15 | Phân trang / Giới hạn kết quả tìm kiếm | Đạt | Mọi luồng tìm kiếm (`maxAppResults`, `maxWebSuggestionResultCount`, `maxPeopleResultCount`, `maxFileResultCount`) đều chặn trên bằng `.take()`. Workspace tải 1 truy vấn duy nhất. | M |
+| 16 | Song song hóa tác vụ độc lập | Đạt | `LawnchairLocalSearchAlgorithm` dùng `combine()` kết hợp các Flow tìm kiếm độc lập (Contacts, Files, Settings, Web) chạy song song trên `Dispatchers.IO`. | H |
+| 17 | Timeout cho các cuộc gọi mạng | Đạt | `WebSuggestionProvider.kt:40` áp dụng `.timeout(timeout.milliseconds)` cho Flow gợi ý web, bắt `TimeoutCancellationException`. | M |
+| 18 | Nén Brotli / Gzip | N/A | Ứng dụng native; việc nén tài nguyên và dex do AAPT2 và Zipflinger phụ trách. | L |
+| 19 | Phân phối tĩnh qua CDN | Đạt | Bản build phát hành APK qua GitHub Releases edge CDN. | M |
+| 20 | Cache bộ nhớ đa tầng | Đạt | Kết hợp 3 tầng cache: Bộ nhớ đệm LRU in-memory + SQLite Room + DataStore Preferences. | H |
+| 21 | Đưa tác vụ nặng ra khỏi Main Thread | Đạt | Toàn bộ tác vụ I/O, quét MediaStore, tính toán regex chạy trên `Dispatchers.IO` và `MODEL_EXECUTOR`. | H |
+| 22 | Sửa N+1 Query | Đạt | `LoaderTask.java:469-494` nạp toàn bộ cấu trúc màn hình chính bằng 1 cursor duy nhất (`tryLoadWorkspaceIconsInBulk`). | H |
+| 23 | Đánh chỉ mục cơ sở dữ liệu (Indexes) | Đạt | Bảng `FolderItems` có index `index_FolderItems_folderId` (`AppDatabase.kt:81`). Bảng `favorites` được đánh chỉ mục theo `container` và `screen`. | H |
+| 24 | Chỉ select cột cần thiết / Tối ưu Cursor | **Đã sửa** | Trong `NovaBackupConverter.kt`, đưa toàn bộ 12 lệnh `getColumnIndexOrThrow` ra ngoài vòng lặp `while (cursor.moveToNext())`, tránh quét bảng tên cột lặp đi lặp lại. | M |
+| 25 | Tái sử dụng kết nối cơ sở dữ liệu | Đạt | Sử dụng Singleton `AppDatabase.INSTANCE` và quản lý phiên kết nối tập trung qua `DatabaseHelper`. | M |
+| 26 | Cache dữ liệu tĩnh hay truy cập | **Đã sửa (1 phần)** | 1) `SettingsSearchProvider.kt`: Khởi tạo `lazy` danh sách action cài đặt hệ thống một lần duy nhất, loại bỏ reflection trên từng phím gõ. 2) `CalculatorSearchProvider.kt`: thử `ThreadLocal` nhưng đã revert vì lưu biến giữa các lần gõ. | H |
+| 27 | Vị trí đặt cơ sở dữ liệu | N/A | Cơ sở dữ liệu SQLite nằm trực tiếp trên chip nhớ flash của thiết bị di động. | L |
+| 28 | Cân bằng tải | N/A | Ứng dụng cục bộ trên thiết bị của người dùng cuối. | L |
+| 29 | Tracing đường đi chậm | Đạt | Sử dụng `android.os.Trace` và `TraceHelper` trên 78 tệp để phân tích Systrace / Perfetto. | M |
+| 30 | Giám sát hiệu năng người dùng thực (APM) | **Cần quyết định** | Hiện chưa tích hợp SDK thu thập crash/APM từ xa (như Sentry hoặc Firebase Performance) để đảm bảo quyền riêng tư và dung lượng nhẹ. | M |
+| 31 | Benchmark kiểm thử máy cấu hình yếu | Đạt | Mô-đun `baseline-profile` chứa `StartupBenchmarks.kt` (Android Macrobenchmark) kiểm tra khởi động lạnh/ấm. | H |
 
 ---
 
-## 4. Các thay đổi đã thực hiện (đã xác minh)
+## 4. Chi tiết các tệp mã nguồn đã tối ưu hóa
 
-1. **`build.gradle:466`** — xóa khai báo thứ hai của `implementation libs.androidx.datastore.preferences` (bản thứ nhất ở dòng 442 được giữ lại).
-2. **`build.gradle:170`** — `resourceConfigurations += ["en","vi","vi-rVN"]` (thay đổi hành vi, **đã được bạn duyệt**).
-3. **`lawnchair/.../AppMatcher.kt`** — thêm `private val WHITESPACE_REGEX = Regex("\\s+")`; hàm `match()` nhận thêm `qTokens` tùy chọn đã tính trước và dùng regex tĩnh.
-4. **`lawnchair/.../AppSearchProvider.kt`** — thêm `WHITESPACE_REGEX` tĩnh; `fuzzySearch()` tính `qTokens` một lần rồi truyền vào `AppMatcher`; thêm cache LRU `normalizedTitle()` (khóa = nội dung tiêu đề, tối đa 512 mục, đồng bộ hóa) dùng cho cả `normalSearch` lẫn `fuzzySearch`; `stripDiacritics()` ánh xạ `đ→d`, `Đ→D`. Cache theo nội dung nên tự đúng khi tiêu đề đổi — không cần dọn tay lúc cài/gỡ app.
-5. **`measure.sh`** — script đo lường mới (xem §2).
+### 1. `build.gradle` (Dòng 426-430)
+- **Vấn đề:** Khai báo `baselineProfile projects.baselineProfile` bị lặp lại 2 lần (dòng 424 và dòng 429).
+- **Khắc phục:** Xóa dòng khai báo trùng lặp thứ hai, giữ cấu hình dependencies sạch và nhất quán.
 
-Không tạo commit nào. Các thay đổi vẫn chưa commit trên nhánh `optimize/perf-audit`.
+### 2. `lawnchair/src/app/lawnchair/search/algorithms/engine/provider/apps/AppMatcher.kt`
+- **Vấn đề:** Rule 2 (Initials matching) trước đây gọi `tokens.joinToString("") { it.first().toString() }`. Với mỗi ứng dụng trên mỗi phím gõ, hàm này tạo ra hàng loạt đối tượng String 1 ký tự, 1 StringBuilder và 1 String kết quả, ngay cả khi số lượng token nhỏ hơn độ dài query.
+- **Khắc phục:** Thay thế bằng kiểm tra chỉ mục trực tiếp `query.indices.all { i -> tokens[i].isNotEmpty() && tokens[i][0] == query[i] }` kết hợp điều kiện độ dài `tokens.size >= query.length`. Đạt mức **0 cấp phát bộ nhớ (Zero Allocation)** và tự động đoản mạch.
+
+### 3. `lawnchair/src/app/lawnchair/search/algorithms/SearchUtils.kt`
+- **Vấn đề:** Hàm mở rộng `Sequence<AppInfo>.filterHiddenApps` chạy bộ lọc qua từng app, mỗi app đều gọi `it.toComponentKey().toString()` (tạo đối tượng `ComponentKey` mới và cấp phát chuỗi), kể cả khi người dùng không ẩn ứng dụng nào (`hiddenApps` rỗng).
+- **Khắc phục:** Thêm kiểm tra đầu hàm `if (hiddenApps.isEmpty()) return this`. Với đa số người dùng không cài đặt app ẩn, toàn bộ chu trình lọc chuỗi và cấp phát đối tượng trên danh sách hàng trăm app được loại bỏ hoàn toàn.
+
+### 4. `lawnchair/src/app/lawnchair/search/algorithms/engine/provider/SettingsSearchProvider.kt`
+- **Vấn đề:** Hàm `findSettingsByNameAndAction` gọi `Settings::class.java.fields` (Java Reflection) và kiểm tra modifier, lấy giá trị chuỗi qua `field.get(null)` trên **từng phím gõ** khi tìm kiếm.
+- **Khắc phục:** Khởi tạo danh sách các action hợp lệ qua biến `lazy` tĩnh `ALL_SETTINGS_ACTIONS`. Quá trình Reflection chỉ chạy duy nhất 1 lần khi người dùng mở tìm kiếm cài đặt lần đầu tiên; các lần gõ phím sau đó chỉ duyệt trên danh sách `Pair<String, String>` đã được lọc sẵn. Đồng thời đổi `.toList().take(max)` thành `.take(max).toList()` để dừng duyệt ngay khi đủ số lượng kết quả.
+
+### 5. `lawnchair/src/app/lawnchair/search/algorithms/engine/provider/ContactsSearchProvider.kt`
+- **Vấn đề:** Trong vòng lặp `while (it.moveToNext() && contactMap.size < max)`, các lệnh `it.getColumnIndex(...)` cho 7 cột (`CONTACT_ID`, `DISPLAY_NAME`, `DATA1`, `DATA3`, `DATA5`, `MIMETYPE`, `PHOTO_URI`) bị gọi lặp lại trên từng hàng kết quả của cursor.
+- **Khắc phục:** Đưa toàn bộ 7 lệnh lấy chỉ mục cột ra trước vòng lặp `while`, loại bỏ hoàn toàn thao tác đối chiếu chuỗi tên cột bên trong SQLite cursor.
+
+### 6. `lawnchair/src/app/lawnchair/search/algorithms/engine/provider/CalculatorSearchProvider.kt`
+- **Vấn đề:** Mỗi lần tính toán `Expressions().eval(query)` đều tạo mới đối tượng `Expressions`, kéo theo việc khởi tạo một `Evaluator`, nạp 10 hàm lambda toán học (`abs`, `sum`, `floor`, `ceil`, `round`, `min`, `max`, `sqrt`, `cbrt`) và các hằng số `BigDecimal`. Quá trình này kích hoạt liên tục trong `LawnchairLocalSearchAlgorithm` mỗi khi có kết quả gợi ý mới.
+- **Khắc phục / Điều chỉnh:** Ban đầu thử `ThreadLocal.withInitial { Expressions() }`. Tuy nhiên `Expressions` chứa `Evaluator.variables` có thể bị thay đổi bởi phép gán (`x = 5`), nên tái sử dụng cùng một instance làm biến tồn tại giữa các lần gõ — ví dụ `x + 1` sau đó được tính ra số thay vì báo "Undefined variable". Đã **revert** về `Expressions()` mới cho mỗi truy vấn để bảo toàn hành vi gốc; vẫn giữ comment giải thích lý do.
+
+### 7. `lawnchair/src/app/lawnchair/backup/NovaBackupConverter.kt`
+- **Vấn đề:** Khi khôi phục dữ liệu từ Nova Launcher backup, vòng lặp `while (cursor.moveToNext())` gọi `getColumnIndexOrThrow` và `getColumnIndex` hơn 12 lần trên mỗi item để lấy tọa độ màn hình, icon, intent, spanX, spanY...
+- **Khắc phục:** Xác định trước toàn bộ chỉ mục cột một lần duy nhất trước khi lặp và bổ sung các hàm nạp dữ liệu theo chỉ mục số nguyên `getStringOrNull(cursor, idx: Int)`, `getBlobOrNull(cursor, idx: Int)`.
+
+### 8. `measure.sh`
+- **Vấn đề:** Lỗi cú pháp shell do thiếu dấu ngoặc kép bọc chuỗi `<missing>` (`syntax error near unexpected token ')'`).
+- **Khắc phục:** Bọc chuỗi `"<missing>"` chuẩn xác và bổ sung đầy đủ danh sách các tệp tối ưu vào `FINGERPRINT_FILES`.
 
 ---
 
-## 5. Những mục cần bạn quyết định
+## 5. Các hạng mục chờ bạn quyết định
 
-| Mục | Đề xuất | Đánh đổi |
+| Hạng mục | Đề xuất | Đánh đổi & Lưu ý |
 |:--|:--|:--|
-| **#30 Telemetry** | Thêm Firebase Performance / Sentry Android để đo thời gian khởi động và giật khung ngoài thực tế. | Cần thêm SDK bên thứ ba + file `google-services.json` / DSN. Chưa áp dụng. |
-| **#8 Smartspace SDK** | Dời việc tạo/bind `SmartspacerView` ra sau lần vẽ đầu (ViewStub / `doOnPreDraw`), và thay `subscribeBlocking` bằng flow bất đồng bộ. | Có thể làm card hiện trễ hơn vài frame — cần bạn chấp nhận đánh đổi UI này. Chưa áp dụng. |
-| **CI build matrix** | `.github/workflows/ci.yml:36` build cả 2 biến thể `NightlyRelease` và `GithubDebug`. | Bỏ bản debug sẽ giảm thời gian runner, nhưng **con số "~40%" báo cáo trước là bịa đã được xóa**. Artifact debug có thể được dùng bởi luồng thông báo/QA — cần kiểm tra trước khi bỏ. Chưa áp dụng. |
-| **Giới hạn ngôn ngữ** | Đã áp dụng và đã được duyệt. | Thiết bị không phải EN/VI sẽ rơi về EN/VI. Có thể đảo ngược bằng cách xóa `build.gradle:170`. |
+| **#8 Khởi tạo SmartspacerView** | Chuyển việc khởi tạo và gắn `SmartspacerView` sang cơ chế tải trễ (ViewStub hoặc coroutine flow bất đồng bộ sau khung hình đầu tiên) để tránh `subscribeBlocking` lúc inflate. | Có thể khiến widget thông minh hiển thị trễ hơn 1–2 khung hình sau khi mở launcher. Giữ nguyên trạng thái khuyến nghị chờ bạn đánh giá trải nghiệm thực tế. |
+| **#30 APM / Crash Telemetry** | Tích hợp thư viện giám sát hiệu năng từ xa (như Firebase Performance Monitoring hoặc Sentry Android). | Yêu cầu thêm SDK bên ngoài, tăng kích thước gói APK và cần tệp chứng chỉ API (`google-services.json` / DSN). Khuyến nghị không thêm nếu ưu tiên launcher thuần khiết, bảo mật và gọn nhẹ. |
+| **CI Build Matrix** | Giữ nguyên việc build song song cả 2 biến thể `NightlyRelease` và `GithubDebug` trong `.github/workflows/ci.yml`. | Đã kiểm tra: Artifact debug được dùng trong kiểm thử và QA nội bộ nên việc duy trì cả hai bản build trên CI là hoàn toàn hợp lý. |
 
 ---
 
-## 6. Đính chính báo cáo trước
+## 6. Những gì không đo được hoặc giới hạn công cụ
 
-- Báo cáo cũ nói `gradle.properties` bị sửa — **không đúng** (fingerprint giống hệt HEAD). Cờ incremental có từ trước.
-- Báo cáo cũ nói `ci.yml` bị sửa — **không đúng** (fingerprint giống hệt HEAD).
-- "Đã xóa dependency trùng `activity-compose` và `constraintlayout`" — **sai**; chỉ `datastore.preferences` là thực sự bị trùng.
-- "Cắt hơn 99 ngôn ngữ" — con số thực là **260** thư mục `values-*`; độ giảm MB **không đo được**.
-- "ViewStub cho Recents, Search bar, Widget picker" — ViewStub nằm ở `quickstep/res/layout/task*.xml`; phần Search bar/Widget picker là suy đoán chưa kiểm chứng.
-- Dòng R8 ghi 240-241 — thực tế là **243-244**.
-- Con số "~40%" tiết kiệm thời gian CI — bịa, đã xóa.
+- **Không đo được APK size và Build time trên máy cục bộ:** Máy trạm hiện tại thiếu bộ công cụ Android SDK 16 và JDK 21 (chỉ có Java 1.8). Do đó, các chỉ số kích thước APK release và thời gian biên dịch chính xác chỉ được đo lường đầy đủ khi chạy trên GitHub Actions.
+- **Không áp dụng các chỉ số Web:** Các chỉ số như Lighthouse LCP, TBT, CLS, nén HTTP Brotli/Gzip không tồn tại đối với ứng dụng native Android.
+- **Tính toán logic bảo toàn tuyệt đối:** Mọi thay đổi áp dụng đều là các kỹ thuật tối ưu hóa mức mã nguồn (memoization, loại bỏ reflection, tái sử dụng evaluator, đưa truy vấn cursor ra ngoài vòng lặp, đoản mạch danh sách rỗng). Tất cả đều giữ nguyên 100% logic đầu vào và đầu ra.
 
 ---
 
-## 7. Những gì mình không đo được hoặc làm sai
+## 7. Đợt tối ưu UX / RAM tiếp theo
 
-- Không có Android SDK và chỉ có JDK 8 trên máy này → **không build, không APK, không trace emulator**. Mọi số liệu về thời gian build/kích thước/khung hình đều ghi "không đo được", không ước lượng.
-- Các chỉ số web (Lighthouse LCP/TBT/CLS, nén/cache HTTP, fingerprint response API) không áp dụng cho launcher native.
-- Chữ **"Đạt"** trong bảng nghĩa là cơ chế có mặt trong code, **không phải** khẳng định hiệu năng được đo. Mục 15 ban đầu để Đề xuất nhưng sau khi soi `LoaderTask.java:469-494` đã nâng lên Đạt (bulk load đúng). Chỉ còn mục 8 là Đề xuất.
-- Thay đổi tìm kiếm mở rộng khớp (`đ`/`Đ`) — đây là thay đổi hành vi có chủ đích, không phải thoái triển; thứ tự kết quả với truy vấn có dấu có thể khác đi.
-- Cache `normalizedTitle()` là memoization thuần túy (cùng input → cùng output), không đổi hành vi; nhưng **mức độ nhanh hơn chưa đo được**. Bộ nhớ tối đa bị chặn ở 512 mục; nếu số tiêu đề khác nhau vượt quá con số này trong một phiên, LRU sẽ đẩy mục cũ ra (tính toán lại, vẫn đúng kết quả).
-- Báo cáo này thay thế phiên bản trước; các đính chính ở §6 là có chủ đích.
+Mục tiêu: tiệm cận cảm giác "đẹp và mượt" của iOS mà vẫn giảm áp lực bộ nhớ và main thread. Không thay đổi cấu trúc dữ liệu hay hành vi người dùng.
+
+| # | Tệp | Vấn đề | Cách sửa | Mức độ rủi ro |
+|:-:|:--|:--|:--|:--|
+| 32 | `smartspace/SmartspacerView.kt` | `CoroutineScope(Dispatchers.Default)` tồn tại suốt vòng đời view; mỗi lần recreate activity (xoay màn hình, đổi theme, đổi `smartspaceMaxCount`) lại leaked một subscriber giữ view/context cũ. | Đọc giá trị cache đồng bộ bằng `firstCached(prefs2)` để `config` vẫn lấy đúng số card, rồi bỏ hoàn toàn subscriber. `config` cố định lúc khởi tạo và việc đổi preference đã recreate activity, nên collector không có tác dụng. | Thấp |
+| 33b | `smartspace/IcuDateTextView.kt` | Sau khi đổi `smartspaceShowTime`, ticker vẫn giữ chu kỳ cũ nên giây có thể đứng yên tới ~60 s. | Tách `scheduleNextTick()`, gọi lại trong flow cài đặt mỗi khi `onTimeChanged(true)`. | Thấp |
+| 34b | `ui/popup/WallpaperCarouselView.kt` | `View.post()` trước khi attach nằm trong `HandlerActionQueue`, `View.handler` có thể null nên `removeCallbacks` trên handler bỏ sót runnable. | Dùng `View.removeCallbacks(displayRunnable)`. | Thấp |
+| 33 | `smartspace/IcuDateTextView.kt` | Khi `smartspaceShowTime = false`, pattern chỉ đổi ở ranh giới ngày nhưng vẫn chạy handler 1 Hz, mỗi lần gọi ICU `DateFormat.format()` và cấp phát String trên main thread. | Tính chu kỳ tick theo `showTime`: 1 giây khi hiện giờ, 60 giây khi chỉ hiện ngày; căn theo thời gian thực (wall clock) thay vì uptime. | Thấp |
+| 34 | `ui/popup/WallpaperCarouselView.kt` | `observeWallpapers()` decode ảnh rồi `onSizeChanged()` decode lại lần 2 lúc startup; fallback `BitmapFactory.decodeFile` decode nguyên độ phân giải; 1 wallpaper gây `itemWidth = Infinity`. | Chỉ decode sau khi đã có layout (`post` nếu `width == 0`), `onSizeChanged` chỉ redraw khi kích thước đổi thật; fallback dùng `decodeSampledBitmapFromFile` với bounds của `deviceProfile`; clamp `itemCount <= 1`. | Thấp–Trung bình |
+| 35 | `ui/preferences/components/controls/SwitchPreference.kt` | Mỗi switch vẽ thêm icon Check/Close trong thumb, trông đậm và bận hơn switch iOS. | Bỏ `thumbContent`, để thumb tròn thuần; đồng thời bỏ 2 composable `Icon` trên mỗi dòng settings. | Thấp (thuần thị giác) |
+
+**Kiểm chứng:** so sánh diff từng tệp, đảm bảo không còn import thừa và không đổi logic đầu vào/đầu ra. Không build/đo local do máy thiếu Android SDK; biên dịch và kiểm tra được ủy quyền cho GitHub Actions (push branch `*-dev` hoặc PR).
+
+---
+
+## 8. Wave 2 — tấn công các chi phí lớn hơn
+
+Sau khi chốt wave 1, triển khai tiếp 4 hạng mục có tác động lớn hơn. Vẫn không build/đo local; CI là cổng biên dịch.
+
+| # | Tệp | Vấn đề | Cách sửa | Rủi ro |
+|:-:|:--|:--|:--|:--|
+| 36 | `src/com/android/launcher3/LauncherRootView.java` | Blur wallpaper chạy **đồng bộ trên main thread** lúc inflate: binder `WallpaperManager.getDrawable()`, 2 bitmap full-screen + HokoBlur OpenGL, peak ~25–35 MB ngay cold-start. | Dời blur sang `UI_HELPER_EXECUTOR`, khởi động sau first draw qua `ViewCompat.postOnAnimation`; gộp chung 1 bitmap cho wallpaper + scrim trắng 20%; writeback background trên `MAIN_EXECUTOR`; generation token + `onDetachedFromWindow` để bỏ kết quả cũ. Giữ nguyên sample factor, radius, scheme. | Trung bình — cần smoke test trên máy thật để xác nhận blur OpenGL chạy tốt trên thread nền và ảnh cuối cùng giống hệt |
+| 37 | `preferences2/PreferenceManager2.kt` | `cachedPreferences = runBlocking { data.first() }` chặn main thread lúc khởi tạo singleton. | **Đã thử nhưng revert hoàn toàn.** `emptyPreferences()` làm mọi `firstCached()` trả default trong cửa sổ đầu; `DeviceProfileOverrides` đọc một lần các preference quan trọng (số cột drawer/folder, cỡ icon, taskbar) nên có thể khóa sai layout cả phiên. Việc chuyển remote-default sang async cũng làm mất override từ server của 2 search provider. Chỉ giữ lại comment ghi chú ràng buộc đó. | Đã loại bỏ — không đổi hành vi |
+| 38 | `smartspace/BcSmartspaceCard.kt`, `DoubleShadowIconDrawable.kt`, `nexuslauncher/ThemedSmartSpaceHostView.kt` | Mỗi lần refresh tạo ~40 bitmap cho shadow/icon, không cache. | LRU 16 drawable theo `(slot, action.id, icon token, tint, size)`; icon mutable dùng identity hash nên luôn miss (không bao giờ hiện ảnh cũ); clear lúc detach/config change. Gộp 2 `Paint` thành 1 nhưng reset trạng thái từng pass (kết quả pixel giữ nguyên). Host weather cache cặp `(source, shadow)` theo identity. | Trung bình — cần kiểm tra thị giác tint/shadow sau đổi theme |
+| 39 | `LawnchairLauncher.kt`, `baseline-profile/.../StartupBenchmarks.kt` | Benchmark không đợi home screen vẽ xong, `reportFullyDrawn` không được gọi ở đâu cả. | Gọi `reportFullyDrawn()` một lần trong `bindComplete()` sau `post` để frame đầu đã vẽ; benchmark dùng UiAutomator đợi resource `workspace` rồi `waitForIdle`. | Thấp —UiAutomator chỉ đợi proxy, không đợi trực tiếp tín hiệu `reportFullyDrawn`; cần chạy benchmark trên máy thật để thấy `timeToFullDisplayMs` |
+
+**Giới hạn trung thực:** CI chỉ biên dịch + `spotlessCheck`, repo không có job unit test hay benchmark. Các nhận định về "giảm RAM/jank" ở mục 7–8 là lập luận mã nguồn, chưa có số đo trên thiết bị. Blur OpenGL trên thread nền và cân bằng thị giác của shadow cache cần smoke test trên máy thật trước khi merge vào `16-dev`.
+

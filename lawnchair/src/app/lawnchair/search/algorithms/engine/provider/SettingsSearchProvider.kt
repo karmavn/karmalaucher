@@ -43,6 +43,39 @@ object SettingsSearchProvider : SearchProvider {
     }
 }
 
+private val ALL_SETTINGS_ACTIONS: List<Pair<String, String>> by lazy {
+    try {
+        Settings::class.java.fields
+            .asSequence()
+            .filter {
+                it.type == String::class.java &&
+                    Modifier.isStatic(it.modifiers) &&
+                    it.name.startsWith("ACTION_")
+            }
+            .mapNotNull { field ->
+                try {
+                    val name = field.name
+                    val action = field.get(null) as? String ?: return@mapNotNull null
+                    if (!action.contains("REQUEST", ignoreCase = true) &&
+                        !name.contains("REQUEST", ignoreCase = true) &&
+                        !action.contains("PERMISSION", ignoreCase = true) &&
+                        !name.contains("DETAIL", ignoreCase = true) &&
+                        !name.contains("REMOTE", ignoreCase = true)
+                    ) {
+                        name to action
+                    } else {
+                        null
+                    }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            .toList()
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
 private suspend fun findSettingsByNameAndAction(query: String, max: Int): List<SettingInfo> = try {
     if (query.isBlank() || max <= 0) {
         emptyList()
@@ -52,28 +85,15 @@ private suspend fun findSettingsByNameAndAction(query: String, max: Int): List<S
                 Log.e("SettingSearch", "Something went wrong ", e)
             },
         ) {
-            Settings::class.java.fields
-                .asSequence()
-                .filter {
-                    it.type == String::class.java &&
-                        Modifier.isStatic(it.modifiers) &&
-                        it.name.startsWith("ACTION_")
-                }
-                .map { it.name to it.get(null) as String }
-                .filter { (name, action) ->
-                    name.contains(query, ignoreCase = true) &&
-                        !action.contains("REQUEST", ignoreCase = true) &&
-                        !name.contains("REQUEST", ignoreCase = true) &&
-                        !action.contains("PERMISSION", ignoreCase = true) &&
-                        !name.contains("DETAIL", ignoreCase = true) &&
-                        !name.contains("REMOTE", ignoreCase = true)
-                }
+            ALL_SETTINGS_ACTIONS.asSequence()
+                .filter { (name, _) -> name.contains(query, ignoreCase = true) }
                 .map { (name, action) ->
                     val id = name + action
                     val requiresUri = action.contains("URI")
                     SettingInfo(id, name, action, requiresUri)
                 }
-                .toList().take(max)
+                .take(max)
+                .toList()
         }
     }
 } catch (e: Exception) {

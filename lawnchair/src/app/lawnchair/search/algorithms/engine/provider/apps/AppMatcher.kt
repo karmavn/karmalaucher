@@ -57,9 +57,11 @@ internal object AppMatcher {
         val qTokens = precomputedQTokens ?: query.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
 
         // Rule 2: Initials (for single-token queries)
-        if (query.none { it.isWhitespace() }) {
-            val initials = tokens.joinToString("") { it.first().toString() }
-            if (initials.isNotEmpty() && initials.startsWith(query)) {
+        if (query.none { it.isWhitespace() } && query.isNotEmpty() && tokens.size >= query.length) {
+            val initialsMatch = query.indices.all { i ->
+                tokens[i].isNotEmpty() && tokens[i][0] == query[i]
+            }
+            if (initialsMatch) {
                 return MatchResult(0.88f, MatchType.INITIALS)
             }
         }

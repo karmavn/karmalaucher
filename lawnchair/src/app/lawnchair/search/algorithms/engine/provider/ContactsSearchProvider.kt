@@ -82,14 +82,14 @@ object ContactsSearchProvider : SearchProvider, SearchPermission {
                     selectionArgs,
                     null,
                 )?.use {
+                    val contactIdIndex = it.getColumnIndex(ContactsContract.Data.CONTACT_ID)
+                    val displayNameIndex = it.getColumnIndex(ContactsContract.Data.DISPLAY_NAME)
+                    val data1Index = it.getColumnIndex(ContactsContract.Data.DATA1)
+                    val data3Index = it.getColumnIndex(ContactsContract.Data.DATA3)
+                    val data5Index = it.getColumnIndex(ContactsContract.Data.DATA5)
+                    val mimeTypeIndex = it.getColumnIndex(ContactsContract.Data.MIMETYPE)
+                    val photoUriIndex = it.getColumnIndex(ContactsContract.Data.PHOTO_URI)
                     while (it.moveToNext() && contactMap.size < max) {
-                        val contactIdIndex = it.getColumnIndex(ContactsContract.Data.CONTACT_ID)
-                        val displayNameIndex = it.getColumnIndex(ContactsContract.Data.DISPLAY_NAME)
-                        val data1Index = it.getColumnIndex(ContactsContract.Data.DATA1)
-                        val data3Index = it.getColumnIndex(ContactsContract.Data.DATA3)
-                        val data5Index = it.getColumnIndex(ContactsContract.Data.DATA5)
-                        val mimeTypeIndex = it.getColumnIndex(ContactsContract.Data.MIMETYPE)
-                        val photoUriIndex = it.getColumnIndex(ContactsContract.Data.PHOTO_URI)
                         val contactId = it.getString(contactIdIndex)
                         val displayName = it.getString(displayNameIndex)
                         val data1 = it.getString(data1Index)

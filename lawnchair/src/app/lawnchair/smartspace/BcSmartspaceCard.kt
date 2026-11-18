@@ -1,8 +1,11 @@
 package app.lawnchair.smartspace
 
 import android.content.Context
+import android.content.res.Configuration
+import android.graphics.drawable.Icon
 import android.text.TextUtils
 import android.util.AttributeSet
+import android.util.LruCache
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -24,6 +27,7 @@ class BcSmartspaceCard @JvmOverloads constructor(
 ) : LinearLayout(context, attrs) {
 
     private var baseActionIconSubtitleView: DoubleShadowTextView? = null
+    private val shadowIconCache = LruCache<String, DoubleShadowIconDrawable>(ICON_CACHE_SIZE)
     private var dateView: IcuDateTextView? = null
     private var dndImageView: ImageView? = null
     private var extrasGroup: ViewGroup? = null
@@ -59,8 +63,7 @@ class BcSmartspaceCard @JvmOverloads constructor(
         usePageIndicatorUi = multipleCards
 
         if (headerAction != null) {
-            iconDrawable = BcSmartSpaceUtil.getIconDrawable(headerAction.icon, context)
-                ?.let { DoubleShadowIconDrawable(it, context) }
+            iconDrawable = getOrCreateIconDrawable(HEADER_ICON_SLOT, headerAction, headerIconTint())
 
             var title: CharSequence? = headerAction.title
             var subtitle = headerAction.subtitle
@@ -80,8 +83,7 @@ class BcSmartspaceCard @JvmOverloads constructor(
         }
 
         if (baseAction != null && baseActionIconSubtitleView != null) {
-            val icon = BcSmartSpaceUtil.getIconDrawable(baseAction.icon, context)
-                ?.let { DoubleShadowIconDrawable(it, context) }
+            val icon = getOrCreateIconDrawable(BASE_ICON_SLOT, baseAction, NO_TINT)
             val iconView = baseActionIconSubtitleView!!
             if (icon != null) {
                 icon.setTintList(null)
@@ -184,11 +186,72 @@ class BcSmartspaceCard @JvmOverloads constructor(
         }
     }
 
+    override fun onDetachedFromWindow() {
+        shadowIconCache.evictAll()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Dimensions, theme colors and tints may have changed: drop every cached shadow.
+        shadowIconCache.evictAll()
+    }
+
+    /**
+     * Returns a [DoubleShadowIconDrawable] for [action], reusing one that was built for the
+     * same source/tint/size. [DoubleShadowIconDrawable] rasterizes the icon and builds two
+     * blurred shadows in its constructor, so avoiding that work on every refresh keeps the
+     * per-refresh allocation count (and GC pressure) down.
+     *
+     * The key deliberately contains a token derived from the source [Icon]: resource-backed
+     * icons use their resource id, which is stable even when the provider creates a fresh
+     * [Icon] on each emission. Mutable icons (bitmaps, URIs, byte arrays) fall back to object
+     * identity, so a changed image always misses the cache instead of showing a stale icon.
+     */
+    private fun getOrCreateIconDrawable(
+        slot: String,
+        action: SmartspaceAction,
+        tint: Int,
+    ): DoubleShadowIconDrawable? {
+        val iconSize = context.resources.getDimensionPixelSize(R.dimen.enhanced_smartspace_icon_size)
+        val key = "$slot|${action.id}|${iconToken(action.icon)}|$tint|$iconSize"
+        shadowIconCache.get(key)?.let { return it }
+        val source = BcSmartSpaceUtil.getIconDrawable(action.icon, context) ?: return null
+        return DoubleShadowIconDrawable(source, context).also { shadowIconCache.put(key, it) }
+    }
+
+    private fun iconToken(icon: Icon?): String {
+        if (icon == null) return "none"
+        // Avoid Icon.getMode(): it is not available in this project's compile-time stubs.
+        // getResId() throws for non-resource icons, which is exactly the fallback signal.
+        val resId = try {
+            icon.resId
+        } catch (_: IllegalStateException) {
+            -1
+        }
+        return if (resId > 0) "res:$resId" else "id:${System.identityHashCode(icon)}"
+    }
+
+    private fun headerIconTint(): Int = when (target.featureType) {
+        // Weather icons are never tinted (see updateIconTint), so use a stable sentinel
+        // instead of the text color to avoid needless cache entries on a theme change.
+        SmartspaceTarget.FeatureType.FEATURE_WEATHER -> NO_TINT
+
+        else -> iconTintColor
+    }
+
     private fun updateIconTint() {
         val icon = iconDrawable ?: return
         when (target.featureType) {
             SmartspaceTarget.FeatureType.FEATURE_WEATHER -> icon.setTintList(null)
             else -> icon.setTint(iconTintColor)
         }
+    }
+
+    companion object {
+        private const val ICON_CACHE_SIZE = 16
+        private const val NO_TINT = Int.MIN_VALUE
+        private const val HEADER_ICON_SLOT = "h"
+        private const val BASE_ICON_SLOT = "b"
     }
 }

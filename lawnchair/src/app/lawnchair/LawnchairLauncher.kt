@@ -154,6 +154,7 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     private lateinit var colorScheme: ColorScheme
     private var hasBackGesture = false
+    private var hasReportedFullyDrawn = false
 
     val gestureController by unsafeLazy { GestureController(this) }
 
@@ -250,6 +251,31 @@ class LawnchairLauncher : QuickstepLauncher() {
         reloadIconsIfNeeded()
 
         AppDatabase.INSTANCE.get(this).checkpointSync()
+    }
+
+    override fun bindComplete(workspaceItemCount: Int, isBindSync: Boolean) {
+        super.bindComplete(workspaceItemCount, isBindSync)
+        if (hasReportedFullyDrawn) return
+        hasReportedFullyDrawn = true
+
+        // super.bindComplete() only removes the pre-draw gate. Report after an actual draw
+        // (same one-shot OnDrawListener pattern used in onResume), otherwise the timestamp
+        // would precede the frame that shows the bound workspace. reportFullyDrawn() is a
+        // no-op unless startup is being measured, so this is harmless in release builds.
+        dragLayer.viewTreeObserver.addOnDrawListener(
+            object : ViewTreeObserver.OnDrawListener {
+                private var handled = false
+
+                override fun onDraw() {
+                    if (handled) return
+                    handled = true
+                    dragLayer.post {
+                        dragLayer.viewTreeObserver.removeOnDrawListener(this)
+                        reportFullyDrawn()
+                    }
+                }
+            },
+        )
     }
 
     override fun onNewIntent(intent: Intent?) {

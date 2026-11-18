@@ -55,6 +55,7 @@ fun Sequence<AppInfo>.filterHiddenApps(
     hiddenApps: Set<String>,
     hiddenAppsInSearch: String,
 ): Sequence<AppInfo> {
+    if (hiddenApps.isEmpty()) return this
     return when (hiddenAppsInSearch) {
         HiddenAppsInSearch.ALWAYS -> {
             this

@@ -24,6 +24,11 @@ class ThemedSmartSpaceHostView(context: Context) : SmartSpaceHostView(context) {
     private val workspaceTextColor = Themes.getAttrColor(context, R.attr.workspaceTextColor)
     private val shadowGenerator = ShadowGenerator(ResourceUtils.pxFromDp(48f, resources.displayMetrics))
 
+    // RemoteViews re-inflate on every update; remember the last (source, shadow) pair so an
+    // unchanged weather icon is not run through the shadow generator again.
+    private var lastWeatherSource: Bitmap? = null
+    private var lastWeatherShadow: Bitmap? = null
+
     private val templateTextView = LayoutInflater.from(context)
         .inflate(R.layout.smartspace_text_template, this, false) as DoubleShadowBubbleTextView
 
@@ -70,13 +75,28 @@ class ThemedSmartSpaceHostView(context: Context) : SmartSpaceHostView(context) {
         FontManager.INSTANCE.get(context).setCustomFont(tv, R.id.font_heading)
     }
 
+    override fun onDetachedFromWindow() {
+        lastWeatherSource = null
+        lastWeatherShadow = null
+        super.onDetachedFromWindow()
+    }
+
     private fun overrideWeatherIcon(iv: ImageView) {
-        if (!isWorkspaceDarkText) {
-            val drawable = iv.drawable
-            if (drawable is BitmapDrawable) {
-                iv.setImageBitmap(addShadowToBitmap(drawable.bitmap))
+        if (isWorkspaceDarkText) return
+        val source = (iv.drawable as? BitmapDrawable)?.bitmap ?: return
+        if (source.isRecycled) return
+        // The ImageView may already be showing our shadow bitmap from a previous refresh.
+        if (source === lastWeatherShadow) return
+        if (source === lastWeatherSource) {
+            lastWeatherShadow?.let {
+                iv.setImageBitmap(it)
+                return
             }
         }
+        val shadow = addShadowToBitmap(source)
+        lastWeatherSource = source
+        lastWeatherShadow = shadow
+        iv.setImageBitmap(shadow)
     }
 
     private fun overrideCardIcon(iv: ImageView) {
