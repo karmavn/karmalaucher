@@ -92,7 +92,7 @@ public class LauncherRootView extends InsettableFrameLayout {
         var display = mStatefulContainer.getDeviceProfile();
         int width = display.getDeviceProperties().getWidthPx();
         int height = display.getDeviceProperties().getHeightPx();
-        int sampleFactor = pref.getWallpaperBlurFactorThreshold().get();
+        float sampleFactor = pref.getWallpaperBlurFactorThreshold().get();
         int radius = pref.getWallpaperBlur().get();
         int generation = mBlurGeneration.incrementAndGet();
 
@@ -101,7 +101,7 @@ public class LauncherRootView extends InsettableFrameLayout {
     }
 
     private void blurWallpaperAsync(
-            Context context, int generation, int width, int height, int sampleFactor, int radius) {
+            Context context, int generation, int width, int height, float sampleFactor, int radius) {
         if (mBlurGeneration.get() != generation) {
             return;
         }
