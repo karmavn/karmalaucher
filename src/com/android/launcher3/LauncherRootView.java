@@ -14,6 +14,7 @@ import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.ViewDebug;
 import android.view.WindowInsets;
@@ -39,6 +40,8 @@ import app.lawnchair.util.FileAccessState;
 
 public class LauncherRootView extends InsettableFrameLayout {
 
+    private static final String TAG = "LauncherRootView";
+
     private final Rect mTempRect = new Rect();
 
     private final StatefulContainer mStatefulContainer;
@@ -63,6 +66,7 @@ public class LauncherRootView extends InsettableFrameLayout {
     private boolean mBlurRequested;
     private boolean mBlurInstalled;
     private boolean mBlurNeedsReschedule;
+    private boolean mBlurFailureLogged;
 
     public LauncherRootView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -140,8 +144,13 @@ public class LauncherRootView extends InsettableFrameLayout {
                         mBlurInstalled = true;
                     }
                 });
-            } catch (RuntimeException ignored) {
-                // Keep the existing background if the wallpaper or blur cannot be processed.
+            } catch (RuntimeException e) {
+                // Keep the existing background if the wallpaper or blur cannot be processed,
+                // but log once so a silent GL/threading failure is observable in the field.
+                if (!mBlurFailureLogged) {
+                    mBlurFailureLogged = true;
+                    Log.w(TAG, "Wallpaper blur failed; keeping previous background", e);
+                }
             }
         });
     }

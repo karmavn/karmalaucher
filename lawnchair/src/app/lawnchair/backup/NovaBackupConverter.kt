@@ -324,7 +324,9 @@ class NovaBackupConverter(
             val colIntent = cursor.getColumnIndex(NOVA_COL_INTENT)
             val colCellX = cursor.getColumnIndexOrThrow(NOVA_COL_CELL_X)
             val colCellY = cursor.getColumnIndexOrThrow(NOVA_COL_CELL_Y)
-            val colScreen = cursor.getColumnIndexOrThrow(NOVA_COL_SCREEN)
+            // Only workspace rows need this column; an all-hotseat backup may legitimately
+            // omit it. Resolve it lazily in the non-hotseat branch, as before.
+            val colScreen = cursor.getColumnIndex(NOVA_COL_SCREEN)
             val colSpanX = cursor.getColumnIndexOrThrow(NOVA_COL_SPAN_X)
             val colSpanY = cursor.getColumnIndexOrThrow(NOVA_COL_SPAN_Y)
             val colIcon = cursor.getColumnIndex(NOVA_COL_ICON)
@@ -369,7 +371,13 @@ class NovaBackupConverter(
                 val intent = importedDeepShortcut?.toLauncherIntentUri() ?: rawIntent
                 val cellX = cursor.getDouble(colCellX).toInt()
                 val cellY = cursor.getDouble(colCellY).toInt()
-                val screen = if (isHotseat) cellX else cursor.getInt(colScreen)
+                val screen = if (isHotseat) {
+                    cellX
+                } else {
+                    cursor.getInt(
+                        if (colScreen >= 0) colScreen else cursor.getColumnIndexOrThrow(NOVA_COL_SCREEN),
+                    )
+                }
                 val spanX = cursor.getDouble(colSpanX).toInt().coerceAtLeast(1)
                 val spanY = cursor.getDouble(colSpanY).toInt().coerceAtLeast(1)
                 val icon = getBlobOrNull(cursor, colIcon)
