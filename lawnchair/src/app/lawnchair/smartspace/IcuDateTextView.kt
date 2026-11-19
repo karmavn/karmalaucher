@@ -31,6 +31,7 @@ class IcuDateTextView @JvmOverloads constructor(
     private var calendar: SmartspaceCalendar? = null
     private lateinit var dateTimeOptions: DateTimeOptions
     private var formatterFunction: FormatterFunction? = null
+
     // A single Runnable instance: postAtTime and removeCallbacks must see the same object,
     // otherwise a function reference gets SAM-wrapped anew at each call and removal misses.
     private val ticker = Runnable { onTimeTick() }

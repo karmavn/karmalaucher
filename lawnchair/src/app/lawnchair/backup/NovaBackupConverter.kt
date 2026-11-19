@@ -324,6 +324,7 @@ class NovaBackupConverter(
             val colIntent = cursor.getColumnIndex(NOVA_COL_INTENT)
             val colCellX = cursor.getColumnIndexOrThrow(NOVA_COL_CELL_X)
             val colCellY = cursor.getColumnIndexOrThrow(NOVA_COL_CELL_Y)
+
             // Only workspace rows need this column; an all-hotseat backup may legitimately
             // omit it. Resolve it lazily in the non-hotseat branch, as before.
             val colScreen = cursor.getColumnIndex(NOVA_COL_SCREEN)

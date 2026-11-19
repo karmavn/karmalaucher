@@ -64,6 +64,7 @@ class WallpaperCarouselView @JvmOverloads constructor(
             visibility = if (loadedWallpapers.isEmpty()) GONE else VISIBLE
             loadingView.visibility = if (loadedWallpapers.isEmpty()) GONE else VISIBLE
             if (loadedWallpapers.isEmpty()) return@observeOnce
+
             // Decode only once the view has a width; when called before attach, post so
             // the pending layout pass happens first.
             if (width > 0) displayWallpapers(loadedWallpapers) else post(displayRunnable)
