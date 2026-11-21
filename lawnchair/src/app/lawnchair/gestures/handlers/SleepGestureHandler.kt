@@ -22,7 +22,6 @@ import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.provider.Settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -37,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import app.lawnchair.LawnchairLauncher
 import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.ui.ModalBottomSheetContent
@@ -50,7 +48,6 @@ import kotlinx.coroutines.flow.first
 class SleepGestureHandler(context: Context) : GestureHandler(context) {
 
     private val rootMethod = SleepMethodRoot(context)
-    private val timeoutMethod = SleepMethodTimeout(context)
     private val deviceAdminMethod = SleepMethodDeviceAdmin(context)
 
     override suspend fun onTrigger(launcher: LawnchairLauncher) {
@@ -58,14 +55,10 @@ class SleepGestureHandler(context: Context) : GestureHandler(context) {
         val method = when (pref) {
             SleepMode.AUTO -> when {
                 rootMethod.isSupported() -> rootMethod
-                timeoutMethod.hasPermission() -> timeoutMethod
-                deviceAdminMethod.hasPermission() -> deviceAdminMethod
-                else -> timeoutMethod
+                else -> deviceAdminMethod
             }
 
-            SleepMode.ROOT -> if (rootMethod.isSupported()) rootMethod else timeoutMethod
-
-            SleepMode.TIMEOUT -> timeoutMethod
+            SleepMode.ROOT -> if (rootMethod.isSupported()) rootMethod else deviceAdminMethod
 
             SleepMode.DEVICE_ADMIN -> deviceAdminMethod
         }
@@ -85,33 +78,6 @@ class SleepMethodRoot(context: Context) : SleepGestureHandler.SleepMethod(contex
 
     override suspend fun sleep(launcher: LawnchairLauncher) {
         Shell.cmd("input keyevent 26").exec()
-    }
-}
-
-class SleepMethodTimeout(context: Context) : SleepGestureHandler.SleepMethod(context) {
-
-    fun hasPermission(): Boolean = Settings.System.canWrite(context)
-
-    override suspend fun isSupported() = true
-
-    override suspend fun sleep(launcher: LawnchairLauncher) {
-        if (!hasPermission()) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                "package:${context.packageName}".toUri(),
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            ComposeBottomSheet.show(launcher) {
-                SleepPermissionDialog(
-                    title = R.string.dt2s_timeout_hint_title,
-                    message = R.string.dt2s_timeout_hint,
-                    settingsIntent = intent,
-                ) { close(true) }
-            }
-            return
-        }
-        val sleepIntent = Intent(launcher, SleepTimeoutActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        launcher.startActivity(sleepIntent)
     }
 }
 
@@ -187,16 +153,7 @@ fun SleepPermissionDialog(
                     try {
                         context.startActivity(settingsIntent)
                     } catch (_: ActivityNotFoundException) {
-                        if (settingsIntent.action == Settings.ACTION_MANAGE_WRITE_SETTINGS &&
-                            settingsIntent.data != null
-                        ) {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                                )
-                            }
-                        }
+                        // ignore
                     }
                     handleClose()
                 },

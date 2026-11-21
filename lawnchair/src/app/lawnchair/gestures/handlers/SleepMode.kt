@@ -14,9 +14,6 @@ enum class SleepMode(
     ROOT(
         labelResourceId = R.string.sleep_mode_root,
     ),
-    TIMEOUT(
-        labelResourceId = R.string.sleep_mode_timeout,
-    ),
     DEVICE_ADMIN(
         labelResourceId = R.string.sleep_mode_device_admin,
     ),

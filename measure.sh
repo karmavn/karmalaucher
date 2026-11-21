@@ -46,7 +46,6 @@ lawnchair/src/app/lawnchair/HeadlessWidgetsManager.kt
 lawnchair/src/app/lawnchair/NotificationManager.kt
 lawnchair/src/app/lawnchair/data/AppDatabase.kt
 lawnchair/src/app/lawnchair/gestures/handlers/SleepGestureHandler.kt
-lawnchair/src/app/lawnchair/gestures/handlers/SleepTimeoutActivity.kt
 lawnchair/src/app/lawnchair/nexuslauncher/OverlayCallbackImpl.kt
 lawnchair/src/app/lawnchair/predictions/LawnchairPredictionEngine.kt
 lawnchair/src/app/lawnchair/smartspace/BcSmartspaceView.kt

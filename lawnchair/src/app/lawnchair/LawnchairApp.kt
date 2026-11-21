@@ -43,7 +43,6 @@ import androidx.core.content.FileProvider
 import androidx.profileinstaller.ProfileInstaller
 import app.lawnchair.backup.LawnchairBackup
 import app.lawnchair.flowerpot.Flowerpot
-import app.lawnchair.gestures.handlers.SleepTimeoutActivity
 import app.lawnchair.preferences.PreferenceManager
 import app.lawnchair.ui.ModalBottomSheetContent
 import app.lawnchair.ui.preferences.destinations.openAppInfo
@@ -77,9 +76,6 @@ class LawnchairApp : LauncherApplication() {
         registerActivityLifecycleCallbacks(activityHandler)
         // Framework crash workaround on Android 15 and below, see DecorReattachGuard.
         DecorReattachGuard.install(this)
-        if (isMainProcess()) {
-            SleepTimeoutActivity.restorePendingTimeoutIfNeeded(this)
-        }
         scheduleBaselineProfileInstall()
     }
 
