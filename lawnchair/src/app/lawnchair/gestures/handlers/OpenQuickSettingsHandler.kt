@@ -1,11 +1,13 @@
 package app.lawnchair.gestures.handlers
 
-import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import app.lawnchair.LawnchairLauncher
 import com.android.launcher3.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class OpenQuickSettingsHandler(
     context: Context,
@@ -14,20 +16,19 @@ class OpenQuickSettingsHandler(
     @SuppressLint("WrongConstant")
     override suspend fun onTrigger(launcher: LawnchairLauncher) {
         try {
-            Log.v(OpenQuickSettingsHandler::class.java.simpleName, "(Tried reflection)")
             Class.forName("android.app.StatusBarManager")
                 .getMethod("expandSettingsPanel")
                 .apply { isAccessible = true }
                 .invoke(context.getSystemService("statusbar"))
         } catch (e: Exception) {
-            e.printStackTrace()
-
-            // Fallback to a11y service
-            GestureWithAccessibilityHandler.onTrigger(
-                launcher,
-                R.string.quick_settings_a11y_hint,
-                AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS,
-            )
+            Log.w(TAG, "Failed to expand quick settings panel", e)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(launcher, R.string.status_bar_expand_failed, Toast.LENGTH_SHORT).show()
+            }
         }
+    }
+
+    companion object {
+        private const val TAG = "OpenQuickSettingsHandler"
     }
 }

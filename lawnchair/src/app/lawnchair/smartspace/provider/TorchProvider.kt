@@ -16,6 +16,7 @@ import com.android.launcher3.R
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 class TorchProvider(context: Context) :
@@ -25,26 +26,38 @@ class TorchProvider(context: Context) :
         { smartspaceTorch },
     ) {
     private val cameraManager = context.getSystemService<CameraManager>()
+    private val torchIcon by lazy { Icon.createWithResource(context, R.drawable.ic_flashlight_off) }
+
+    @Volatile
+    private var cachedFlashCameraIds: Set<String>? = null
+
+    private fun getFlashCameraIds(): Set<String> {
+        cachedFlashCameraIds?.let { return it }
+        val manager = cameraManager ?: return emptySet()
+        return try {
+            manager.cameraIdList
+                .filter { id ->
+                    runCatching {
+                        manager.getCameraCharacteristics(id)
+                            .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                    }.getOrDefault(false)
+                }
+                .toSet()
+                .also { cachedFlashCameraIds = it }
+        } catch (e: CameraAccessException) {
+            Log.w(TAG, "Failed to query flash camera IDs", e)
+            emptySet()
+        }
+    }
 
     override val internalTargets = torchFlow()
+        .distinctUntilChanged()
         .map { enabled -> listOfNotNull(if (enabled) getSmartspaceTarget() else null) }
 
     private fun torchFlow(): Flow<Boolean> = callbackFlow {
-        if (cameraManager == null) {
-            trySend(false)
-            close()
-            return@callbackFlow
-        }
-
-        // Collect all flash-capable camera IDs
-        val flashCameraIds = cameraManager.cameraIdList
-            .filter { id ->
-                cameraManager.getCameraCharacteristics(id)
-                    .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-            }
-            .toSet()
-
-        if (flashCameraIds.isEmpty()) {
+        val manager = cameraManager
+        val flashIds = getFlashCameraIds()
+        if (manager == null || flashIds.isEmpty()) {
             trySend(false)
             close()
             return@callbackFlow
@@ -54,26 +67,26 @@ class TorchProvider(context: Context) :
 
         val callback = object : CameraManager.TorchCallback() {
             override fun onTorchModeChanged(id: String, enabled: Boolean) {
-                if (id in flashCameraIds) {
+                if (id in flashIds) {
                     if (enabled) {
                         enabledCameraIds.add(id)
                     } else {
                         enabledCameraIds.remove(id)
                     }
-                    trySend(enabledCameraIds.intersect(flashCameraIds).isNotEmpty())
+                    trySend(enabledCameraIds.isNotEmpty())
                 }
             }
 
             override fun onTorchModeUnavailable(id: String) {
-                if (id in flashCameraIds) {
+                if (id in flashIds) {
                     enabledCameraIds.remove(id)
-                    trySend(enabledCameraIds.intersect(flashCameraIds).isNotEmpty())
+                    trySend(enabledCameraIds.isNotEmpty())
                 }
             }
         }
 
-        cameraManager.registerTorchCallback(callback, Handler(Looper.getMainLooper()))
-        awaitClose { cameraManager.unregisterTorchCallback(callback) }
+        manager.registerTorchCallback(callback, Handler(Looper.getMainLooper()))
+        awaitClose { manager.unregisterTorchCallback(callback) }
     }
 
     private fun getSmartspaceTarget(): SmartspaceTarget {
@@ -81,30 +94,21 @@ class TorchProvider(context: Context) :
             id = "torchStatus",
             headerAction = SmartspaceAction(
                 id = "torchStatusAction",
-                icon = Icon.createWithResource(context, R.drawable.ic_flashlight_off),
+                icon = torchIcon,
                 title = context.getString(R.string.torch_status_on),
                 subtitle = context.getString(R.string.torch_action_off),
                 onClick = Runnable {
-                    val cameraManager = cameraManager ?: return@Runnable
-                    try {
-                        cameraManager.cameraIdList.forEach { cameraId ->
-                            try {
-                                val hasFlash = cameraManager
-                                    .getCameraCharacteristics(cameraId)
-                                    .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-                                if (hasFlash) {
-                                    cameraManager.setTorchMode(cameraId, false)
-                                }
-                            } catch (e: CameraAccessException) {
-                                Log.e(
-                                    TAG,
-                                    "Failed to turn off torch for camera $cameraId: ${e.message}",
-                                    e,
-                                )
-                            }
+                    val manager = cameraManager ?: return@Runnable
+                    getFlashCameraIds().forEach { cameraId ->
+                        try {
+                            manager.setTorchMode(cameraId, false)
+                        } catch (e: CameraAccessException) {
+                            Log.e(
+                                TAG,
+                                "Failed to turn off torch for camera $cameraId: ${e.message}",
+                                e,
+                            )
                         }
-                    } catch (e: CameraAccessException) {
-                        Log.e(TAG, "Failed to access camera list", e)
                     }
                 },
             ),

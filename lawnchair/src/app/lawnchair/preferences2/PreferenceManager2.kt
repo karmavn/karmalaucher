@@ -828,7 +828,7 @@ class PreferenceManager2 @Inject constructor(
 
     val doubleTapGestureHandler = serializablePreference<GestureHandlerConfig>(
         key = stringPreferencesKey("double_tap_gesture_handler"),
-        defaultValue = GestureHandlerConfig.Sleep,
+        defaultValue = GestureHandlerConfig.NoOp,
     )
 
     val sleepMode = preference(

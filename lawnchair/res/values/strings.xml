@@ -692,6 +692,13 @@
     <string name="sleep_mode_root">Root</string>
     <string name="sleep_mode_accessibility">Accessibility service</string>
     <string name="sleep_mode_device_admin">Device admin</string>
+    <string name="sleep_mode_timeout">Screen timeout</string>
+    <string name="sleep_mode_description">Does not use Accessibility services, keeping Karma Launcher compatible with banking and telecom apps.</string>
+    <string name="dt2s_timeout_hint_title">Modify system settings required</string>
+    <string name="dt2s_timeout_hint">To turn off the screen without Accessibility and keep fingerprint unlock working, allow Karma Launcher to temporarily shorten screen timeout. Tap \"Open settings\" and enable \"Allow modifying system settings\".</string>
+    <string name="dt2s_admin_biometric_note">Locks immediately without Accessibility. Note: Android may require your PIN or password instead of fingerprint on the next unlock.</string>
+    <string name="gesture_unavailable_without_quickstep">Requires QuickSwitch / Recents integration</string>
+    <string name="status_bar_expand_failed">Unable to open system panel on this device</string>
 
     <!--
 

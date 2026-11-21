@@ -23,7 +23,8 @@ import app.lawnchair.util.Temperature
 import app.lawnchair.util.pendingIntent
 import com.android.launcher3.R
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 
 class SmartspaceWidgetReader(context: Context) :
@@ -32,22 +33,25 @@ class SmartspaceWidgetReader(context: Context) :
         R.string.smartspace_weather,
         { smartspaceAagWidget },
     ) {
-    override val isAvailable: Boolean
+    private val provider = AppWidgetManager.getInstance(context)
+        .getInstalledProvidersForPackage(GSA_PACKAGE, null)
+        .firstOrNull { it.provider.className == WIDGET_CLASS_NAME }
+    override val isAvailable: Boolean = provider != null
 
     override val disabledTargets = listOf(dummyTarget)
-    private val widget: HeadlessWidgetsManager.Widget?
-    override val internalTargets: Flow<List<SmartspaceTarget>>
-
-    init {
-        val appWidgetManager = AppWidgetManager.getInstance(context)
-        val provider = appWidgetManager.getInstalledProvidersForPackage(GSA_PACKAGE, null)
-            .firstOrNull { it.provider.className == WIDGET_CLASS_NAME }
-        isAvailable = provider != null
-        widget = provider?.let {
+    private val widget: HeadlessWidgetsManager.Widget? by lazy {
+        provider?.let {
             val widgetsManager = HeadlessWidgetsManager.INSTANCE.get(context)
-            widgetsManager.getWidget(provider, "smartspaceWidgetId")
+            widgetsManager.getWidget(it, "smartspaceWidgetId")
         }
-        internalTargets = widget?.updates?.map(this::extractWidgetLayout) ?: flowOf(disabledTargets)
+    }
+    override val internalTargets: Flow<List<SmartspaceTarget>> = flow {
+        val activeWidget = widget
+        if (activeWidget != null) {
+            emitAll(activeWidget.updates.map(::extractWidgetLayout))
+        } else {
+            emit(disabledTargets)
+        }
     }
 
     override suspend fun requiresSetup() = widget?.isBound == false

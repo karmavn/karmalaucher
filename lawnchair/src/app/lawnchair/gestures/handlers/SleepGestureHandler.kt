@@ -16,47 +16,62 @@
 
 package app.lawnchair.gestures.handlers
 
-import android.accessibilityservice.AccessibilityService
-import android.annotation.TargetApi
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Build
+import android.provider.Settings
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import app.lawnchair.LawnchairLauncher
 import app.lawnchair.preferences2.PreferenceManager2
+import app.lawnchair.ui.ModalBottomSheetContent
 import app.lawnchair.util.requireSystemService
 import app.lawnchair.views.ComposeBottomSheet
 import com.android.launcher3.R
-import com.android.launcher3.Utilities
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.flow.first
 
 class SleepGestureHandler(context: Context) : GestureHandler(context) {
 
+    private val rootMethod = SleepMethodRoot(context)
+    private val timeoutMethod = SleepMethodTimeout(context)
+    private val deviceAdminMethod = SleepMethodDeviceAdmin(context)
+
     override suspend fun onTrigger(launcher: LawnchairLauncher) {
         val pref = PreferenceManager2.getInstance(context).sleepMode.get().first()
         val method = when (pref) {
-            SleepMode.AUTO -> methods.first { it.isSupported() }
-            SleepMode.ROOT -> methods.filterIsInstance<SleepMethodRoot>().first()
-            SleepMode.ACCESSIBILITY -> methods.filterIsInstance<SleepMethodPieAccessibility>().first()
-            SleepMode.DEVICE_ADMIN -> methods.filterIsInstance<SleepMethodDeviceAdmin>().first()
-        }
+            SleepMode.AUTO -> when {
+                rootMethod.isSupported() -> rootMethod
+                timeoutMethod.hasPermission() -> timeoutMethod
+                deviceAdminMethod.hasPermission() -> deviceAdminMethod
+                else -> timeoutMethod
+            }
 
-        if (pref != SleepMode.AUTO && !method.isSupported()) {
-            methods.first { it.isSupported() }.sleep(launcher)
-            return
+            SleepMode.ROOT -> if (rootMethod.isSupported()) rootMethod else timeoutMethod
+
+            SleepMode.TIMEOUT -> timeoutMethod
+
+            SleepMode.DEVICE_ADMIN -> deviceAdminMethod
         }
 
         method.sleep(launcher)
     }
-
-    private val methods = listOf(
-        SleepMethodRoot(context),
-        SleepMethodPieAccessibility(context),
-        SleepMethodDeviceAdmin(context),
-    )
 
     sealed class SleepMethod(protected val context: Context) {
         abstract suspend fun isSupported(): Boolean
@@ -73,38 +88,54 @@ class SleepMethodRoot(context: Context) : SleepGestureHandler.SleepMethod(contex
     }
 }
 
-class SleepMethodPieAccessibility(context: Context) : SleepGestureHandler.SleepMethod(context) {
-    override suspend fun isSupported() = Utilities.ATLEAST_P
+class SleepMethodTimeout(context: Context) : SleepGestureHandler.SleepMethod(context) {
 
-    @TargetApi(Build.VERSION_CODES.P)
+    fun hasPermission(): Boolean = Settings.System.canWrite(context)
+
+    override suspend fun isSupported() = true
+
     override suspend fun sleep(launcher: LawnchairLauncher) {
-        GestureWithAccessibilityHandler.onTrigger(
-            launcher,
-            R.string.sleep_a11y_hint,
-            AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
-        )
+        if (!hasPermission()) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                "package:${context.packageName}".toUri(),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ComposeBottomSheet.show(launcher) {
+                SleepPermissionDialog(
+                    title = R.string.dt2s_timeout_hint_title,
+                    message = R.string.dt2s_timeout_hint,
+                    settingsIntent = intent,
+                ) { close(true) }
+            }
+            return
+        }
+        val sleepIntent = Intent(launcher, SleepTimeoutActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        launcher.startActivity(sleepIntent)
     }
 }
 
 class SleepMethodDeviceAdmin(context: Context) : SleepGestureHandler.SleepMethod(context) {
+    private val devicePolicyManager: DevicePolicyManager = context.requireSystemService()
+    private val adminComponent = ComponentName(context, SleepDeviceAdmin::class.java)
+
+    fun hasPermission(): Boolean = devicePolicyManager.isAdminActive(adminComponent)
+
     override suspend fun isSupported() = true
 
     override suspend fun sleep(launcher: LawnchairLauncher) {
-        val devicePolicyManager: DevicePolicyManager = context.requireSystemService()
-        if (!devicePolicyManager.isAdminActive(ComponentName(context, SleepDeviceAdmin::class.java))) {
+        if (!hasPermission()) {
             val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
-                .putExtra(
-                    DevicePolicyManager.EXTRA_DEVICE_ADMIN,
-                    ComponentName(context, SleepDeviceAdmin::class.java),
-                )
+                .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
                 .putExtra(
                     DevicePolicyManager.EXTRA_ADD_EXPLANATION,
                     launcher.getString(R.string.dt2s_admin_hint),
                 )
             ComposeBottomSheet.show(launcher) {
-                ServiceWarningDialog(
+                SleepPermissionDialog(
                     title = R.string.dt2s_admin_hint_title,
-                    action = R.string.dt2s_admin_hint,
+                    message = R.string.dt2s_admin_hint,
+                    note = R.string.dt2s_admin_biometric_note,
                     settingsIntent = intent,
                 ) { close(true) }
             }
@@ -119,4 +150,60 @@ class SleepMethodDeviceAdmin(context: Context) : SleepGestureHandler.SleepMethod
             return context.getString(R.string.dt2s_admin_warning)
         }
     }
+}
+
+@Composable
+fun SleepPermissionDialog(
+    title: Int,
+    message: Int,
+    settingsIntent: Intent,
+    modifier: Modifier = Modifier,
+    note: Int? = null,
+    handleClose: () -> Unit,
+) {
+    val context = LocalContext.current
+    ModalBottomSheetContent(
+        modifier = modifier.padding(top = 16.dp),
+        title = { Text(text = stringResource(id = title)) },
+        text = {
+            Column {
+                Text(text = stringResource(id = message))
+                if (note != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(text = stringResource(id = note))
+                }
+            }
+        },
+        buttons = {
+            OutlinedButton(
+                onClick = handleClose,
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Text(text = stringResource(id = android.R.string.cancel))
+            }
+            Spacer(modifier = Modifier.requiredWidth(8.dp))
+            Button(
+                onClick = {
+                    try {
+                        context.startActivity(settingsIntent)
+                    } catch (_: ActivityNotFoundException) {
+                        if (settingsIntent.action == Settings.ACTION_MANAGE_WRITE_SETTINGS &&
+                            settingsIntent.data != null
+                        ) {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }
+                        }
+                    }
+                    handleClose()
+                },
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Text(text = stringResource(id = R.string.open_permission_settings))
+            }
+        },
+    )
 }

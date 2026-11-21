@@ -10,10 +10,10 @@ import com.android.launcher3.dagger.LauncherAppSingleton
 import com.android.launcher3.notification.NotificationListener
 import com.android.launcher3.util.DaggerSingletonObject
 import com.android.launcher3.util.SafeCloseable
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -25,7 +25,7 @@ class NotificationManager @Inject constructor(
 ) : SafeCloseable {
 
     private val scope = MainScope()
-    private val notificationsMap = mutableMapOf<String, StatusBarNotification>()
+    private val notificationsMap = ConcurrentHashMap<String, StatusBarNotification>()
 
     val notifications: StateFlow<List<StatusBarNotification>>
         field = MutableStateFlow(emptyList<StatusBarNotification>())
@@ -55,7 +55,14 @@ class NotificationManager @Inject constructor(
         }
     }
 
-    private fun onChange() {
+    fun refreshSnapshot() {
+        onChange(force = true)
+    }
+
+    private fun onChange(force: Boolean = false) {
+        if (!force && notifications.subscriptionCount.value == 0) {
+            return
+        }
         notifications.value = notificationsMap.values.toList()
     }
 

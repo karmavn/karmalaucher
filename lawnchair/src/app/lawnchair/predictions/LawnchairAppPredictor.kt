@@ -85,6 +85,7 @@ class LawnchairAppPredictor(private val context: Context) : StatsLogCompatManage
 
     fun unregister() {
         StatsLogCompatManager.LOGS_CONSUMER.remove(this)
+        predictionEngine.invalidateFallbackCache()
         activeModel = null
         activeDataModel = null
         activeAllAppsState = null
@@ -252,6 +253,7 @@ class LawnchairAppPredictor(private val context: Context) : StatsLogCompatManage
         dismissedAppsStore.pruneUninstalled(pm)
         hotseatStore.pruneUninstalled(pm)
         dismissedApps = loadDismissedApps()
+        predictionEngine.invalidateFallbackCache()
     }
 
     private fun loadDismissedApps(): MutableSet<String> = dismissedAppsStore.getEntries().toMutableSet()

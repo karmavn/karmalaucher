@@ -15,6 +15,7 @@ import app.lawnchair.util.broadcastReceiverFlow
 import app.lawnchair.util.repeatOnAttached
 import app.lawnchair.util.subscribeBlocking
 import com.android.launcher3.R
+import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
@@ -54,7 +55,10 @@ class IcuDateTextView @JvmOverloads constructor(
             intentFilter.addAction(Intent.ACTION_TIME_CHANGED)
             intentFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED)
             broadcastReceiverFlow(context, intentFilter)
-                .onEach { onTimeChanged(it.action != Intent.ACTION_TIME_TICK) }
+                .onEach {
+                    onTimeChanged(it.action != Intent.ACTION_TIME_TICK)
+                    scheduleNextTick()
+                }
                 .launchIn(this)
         }
     }
@@ -175,12 +179,25 @@ class IcuDateTextView @JvmOverloads constructor(
 
     private fun scheduleNextTick() {
         handler?.removeCallbacks(ticker)
-        if (!isShown) return
-        // Date-only patterns change at minute boundaries at the earliest. Waking up every second
-        // just re-formats the same string on the main thread on every tick.
-        val intervalMillis = if (dateTimeOptions.showTime) 1_000L else 60_000L
+        if (!isShown || !::dateTimeOptions.isInitialized) return
         val wallTime = System.currentTimeMillis()
-        val delayMillis = intervalMillis - wallTime % intervalMillis
+
+        // Format skeletons only display hours:minutes or the date, so waking every second wastes
+        // CPU and allocates Strings on the main thread for ~59 identical ticks per minute.
+        val delayMillis = if (dateTimeOptions.showTime) {
+            val minuteMillis = 60_000L
+            minuteMillis - wallTime % minuteMillis
+        } else {
+            val nextMidnight = Calendar.getInstance().apply {
+                timeInMillis = wallTime
+                add(Calendar.DAY_OF_YEAR, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            (nextMidnight - wallTime).coerceAtLeast(1_000L)
+        }
         handler?.postAtTime(ticker, SystemClock.uptimeMillis() + delayMillis)
     }
 

@@ -16,18 +16,28 @@
 
 package app.lawnchair.gestures.handlers
 
-import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.widget.Toast
+import app.lawnchair.LawnchairApp
 import app.lawnchair.LawnchairLauncher
+import com.android.launcher3.LauncherState
 import com.android.launcher3.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class RecentsGestureHandler(context: Context) : GestureHandler(context) {
 
     override suspend fun onTrigger(launcher: LawnchairLauncher) {
-        GestureWithAccessibilityHandler.onTrigger(
-            launcher,
-            R.string.recents_screen_a11y_hint,
-            AccessibilityService.GLOBAL_ACTION_RECENTS,
-        )
+        withContext(Dispatchers.Main.immediate) {
+            if (LawnchairApp.isRecentsEnabled) {
+                launcher.stateManager.goToState(LauncherState.OVERVIEW)
+            } else {
+                Toast.makeText(
+                    launcher,
+                    R.string.gesture_unavailable_without_quickstep,
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
     }
 }

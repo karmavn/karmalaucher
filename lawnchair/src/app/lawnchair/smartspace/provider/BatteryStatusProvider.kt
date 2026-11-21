@@ -15,6 +15,7 @@ import app.lawnchair.util.formatShortElapsedTimeRoundingUpToMinutes
 import com.android.launcher3.R
 import com.android.launcher3.Utilities
 import kotlin.math.abs
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 // pE-TODO(JimfXJ91): Allow customising on/off behaviour for fast/slow charging
@@ -31,6 +32,8 @@ class BatteryStatusProvider(context: Context) :
      * */
     private val showBatteryChargingSpeedsFlag = false
     private val batteryManager = context.getSystemService<BatteryManager>()
+    private val chargingIcon by lazy { Icon.createWithResource(context, R.drawable.ic_charging) }
+    private val lowBatteryIcon by lazy { Icon.createWithResource(context, R.drawable.ic_battery_low) }
 
     override val internalTargets = broadcastReceiverFlow(context, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         .map { intent ->
@@ -42,15 +45,55 @@ class BatteryStatusProvider(context: Context) :
                     intent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) /
                     intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
                 ).toInt()
-            val wattage = if (showBatteryChargingSpeedsFlag && charging) getChargingWattage(intent) else 0f
-            listOfNotNull(getSmartspaceTarget(charging, full, level, wattage))
+            when {
+                full || level == 100 -> IDLE_SNAPSHOT
+
+                charging -> {
+                    val wattage = if (showBatteryChargingSpeedsFlag) getChargingWattage(intent) else 0f
+                    val wattageBucket = when {
+                        !showBatteryChargingSpeedsFlag -> 0
+                        wattage >= ChargingPower.FAST -> 2
+                        wattage > 0f && wattage <= ChargingPower.SLOW -> 1
+                        else -> 0
+                    }
+                    val remainingMs = computeChargeTimeRemaining()
+                    val chargingTimeText = if (remainingMs > 0) {
+                        formatShortElapsedTimeRoundingUpToMinutes(context, remainingMs)
+                    } else {
+                        null
+                    }
+                    BatterySnapshot(
+                        charging = true,
+                        full = false,
+                        level = level,
+                        wattageBucket = wattageBucket,
+                        chargingTimeRemaining = chargingTimeText,
+                    )
+                }
+
+                level <= 15 -> BatterySnapshot(
+                    charging = false,
+                    full = false,
+                    level = level,
+                    wattageBucket = 0,
+                    chargingTimeRemaining = null,
+                )
+
+                else -> IDLE_SNAPSHOT
+            }
+        }
+        .distinctUntilChanged()
+        .map { snapshot ->
+            listOfNotNull(getSmartspaceTarget(snapshot))
         }
 
-    private fun getSmartspaceTarget(charging: Boolean, full: Boolean, level: Int, wattage: Float): SmartspaceTarget? {
+    private fun getSmartspaceTarget(snapshot: BatterySnapshot): SmartspaceTarget? {
+        if (snapshot.level < 0 || snapshot.full) return null
+        val charging = snapshot.charging
+        val level = snapshot.level
         val title = when {
-            full || level == 100 -> return null
-            showBatteryChargingSpeedsFlag && charging && (wattage >= ChargingPower.FAST) -> context.getString(R.string.smartspace_battery_fast_charging)
-            showBatteryChargingSpeedsFlag && charging && (wattage > 0f && wattage <= ChargingPower.SLOW) -> context.getString(R.string.smartspace_battery_slow_charging)
+            charging && snapshot.wattageBucket == 2 -> context.getString(R.string.smartspace_battery_fast_charging)
+            charging && snapshot.wattageBucket == 1 -> context.getString(R.string.smartspace_battery_slow_charging)
             charging -> context.getString(R.string.smartspace_battery_charging)
             level <= 15 -> context.getString(R.string.smartspace_battery_low)
             else -> return null
@@ -60,9 +103,8 @@ class BatteryStatusProvider(context: Context) :
         } else {
             SmartspaceScores.SCORE_BATTERY
         }
-        val chargingTimeRemaining = computeChargeTimeRemaining()
-        val subtitle = if (charging && chargingTimeRemaining > 0) {
-            val chargingTime = formatShortElapsedTimeRoundingUpToMinutes(context, chargingTimeRemaining)
+        val chargingTime = snapshot.chargingTimeRemaining
+        val subtitle = if (charging && chargingTime != null) {
             context.getString(
                 R.string.battery_charging_percentage_charging_time,
                 level,
@@ -71,12 +113,12 @@ class BatteryStatusProvider(context: Context) :
         } else {
             context.getString(R.string.n_percent, level)
         }
-        val iconResId = if (charging) R.drawable.ic_charging else R.drawable.ic_battery_low
+        val icon = if (charging) chargingIcon else lowBatteryIcon
         return SmartspaceTarget(
             id = "batteryStatus",
             headerAction = SmartspaceAction(
                 id = "batteryStatusAction",
-                icon = Icon.createWithResource(context, iconResId),
+                icon = icon,
                 title = title,
                 subtitle = subtitle,
             ),
@@ -117,6 +159,14 @@ class BatteryStatusProvider(context: Context) :
         }.getOrDefault(0f)
     }
 
+    private data class BatterySnapshot(
+        val charging: Boolean,
+        val full: Boolean,
+        val level: Int,
+        val wattageBucket: Int,
+        val chargingTimeRemaining: String?,
+    )
+
     object ChargingPower {
 
         /* Formula:
@@ -140,5 +190,15 @@ class BatteryStatusProvider(context: Context) :
 
         // 90 W = 90% of 20V @ 5A
         const val EXTREMELY_FAST = 90f
+    }
+
+    companion object {
+        private val IDLE_SNAPSHOT = BatterySnapshot(
+            charging = false,
+            full = false,
+            level = -1,
+            wattageBucket = 0,
+            chargingTimeRemaining = null,
+        )
     }
 }

@@ -2,6 +2,7 @@ package app.lawnchair.gestures.config
 
 import android.app.Activity
 import android.content.Context
+import app.lawnchair.LawnchairApp
 
 val gestureHandlerOptions = listOf(
     GestureHandlerOption.NoOp,
@@ -22,8 +23,10 @@ private val optionsDisabledInDeckLayout = setOf(
 )
 
 fun filterGestureHandlerOptions(deckLayoutEnabled: Boolean): List<GestureHandlerOption> {
-    if (!deckLayoutEnabled) return gestureHandlerOptions
-    return gestureHandlerOptions.filterNot { it in optionsDisabledInDeckLayout }
+    return gestureHandlerOptions.filterNot { option ->
+        (deckLayoutEnabled && option in optionsDisabledInDeckLayout) ||
+            (!LawnchairApp.isRecentsEnabled && option == GestureHandlerOption.Recents)
+    }
 }
 
 suspend fun GestureHandlerOption.buildConfigFrom(context: Context): GestureHandlerConfig? {

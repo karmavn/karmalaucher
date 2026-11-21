@@ -11,12 +11,17 @@ import android.view.View.MeasureSpec.EXACTLY
 import android.view.View.MeasureSpec.makeMeasureSpec
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.viewpager.widget.ViewPager
 import app.lawnchair.smartspace.model.SmartspaceTarget
 import app.lawnchair.smartspace.provider.SmartspaceProvider
+import app.lawnchair.util.lookupLifecycleOwner
 import app.lawnchair.util.repeatOnAttached
 import com.android.launcher3.R
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
@@ -33,6 +38,7 @@ class BcSmartspaceView @JvmOverloads constructor(
     private val adapter = CardPagerAdapter(context)
     private var scrollState = ViewPager.SCROLL_STATE_IDLE
     private var pendingTargets: List<SmartspaceTarget>? = null
+    private var lastSortedTargets: List<SmartspaceTarget> = emptyList()
     private var runningAnimation: Animator? = null
 
     override fun onFinishInflate() {
@@ -66,10 +72,41 @@ class BcSmartspaceView @JvmOverloads constructor(
 
         val targets = if (previewMode) provider.previewTargets else provider.targets
         repeatOnAttached {
+            val lifecycleOwner = context.lookupLifecycleOwner()
             viewPager.adapter = adapter
-            targets
-                .onEach(::onSmartspaceTargetsUpdate)
-                .launchIn(this)
+            if (lifecycleOwner != null) {
+                var collectJob: Job? = null
+                val startCollecting = {
+                    if (collectJob == null) {
+                        collectJob = targets
+                            .onEach(::onSmartspaceTargetsUpdate)
+                            .launchIn(this)
+                    }
+                }
+                val stopCollecting = {
+                    collectJob?.cancel()
+                    collectJob = null
+                }
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_START -> startCollecting()
+                        Lifecycle.Event.ON_STOP, Lifecycle.Event.ON_DESTROY -> stopCollecting()
+                        else -> Unit
+                    }
+                }
+                val lifecycle = lifecycleOwner.lifecycle
+                lifecycle.addObserver(observer)
+                try {
+                    awaitCancellation()
+                } finally {
+                    lifecycle.removeObserver(observer)
+                    stopCollecting()
+                }
+            } else {
+                targets
+                    .onEach(::onSmartspaceTargetsUpdate)
+                    .launchIn(this)
+            }
         }
     }
 
@@ -114,15 +151,21 @@ class BcSmartspaceView @JvmOverloads constructor(
             sortedTargets.reverse()
         }
 
+        if (sortedTargets == lastSortedTargets) {
+            return
+        }
+        lastSortedTargets = sortedTargets
+
         val oldCard = adapter.getCardAtPosition(currentItem)
         adapter.setTargets(sortedTargets)
         val count = adapter.count
-        if (isRtl) {
+        if (isRtl && count > 0) {
             viewPager.setCurrentItem((count - index).coerceIn(0 until count), false)
         }
         indicator.setNumPages(targets.size)
-        oldCard?.let { animateSmartspaceUpdate(it) }
-        adapter.notifyDataSetChanged()
+        if (isShown && isLaidOut) {
+            oldCard?.let { animateSmartspaceUpdate(it) }
+        }
     }
 
     private fun animateSmartspaceUpdate(oldCard: BcSmartspaceCard) {

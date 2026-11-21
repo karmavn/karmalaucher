@@ -39,7 +39,9 @@ public class LauncherClient {
     public final BroadcastReceiver googleInstallListener = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            reconnect();
+            if (isFeedEnabled()) {
+                reconnect();
+            }
         }
     };
 
@@ -127,23 +129,29 @@ public class LauncherClient {
 
         mLauncherService = LauncherClientService.getInstance(activity);
         mLauncherService.mClient = new WeakReference<>(this);
-        mOverlay = mLauncherService.mOverlay;
+        mOverlay = isFeedEnabled() ? mLauncherService.mOverlay : null;
 
         IntentFilter intentFilter = new IntentFilter(Intent.ACTION_PACKAGE_ADDED);
         intentFilter.addDataScheme("package");
         intentFilter.addDataSchemeSpecificPart("com.google.android.googlequicksearchbox", 0);
         mActivity.registerReceiver(googleInstallListener, intentFilter);
 
-        if (apiVersion <= 0) {
-            loadApiVersion(activity);
-        }
+        if (isFeedEnabled()) {
+            if (apiVersion <= 0) {
+                loadApiVersion(activity);
+            }
 
-        connect();
-        if (mActivity.getWindow() != null &&
-                mActivity.getWindow().peekDecorView() != null &&
-                mActivity.getWindow().peekDecorView().isAttachedToWindow()) {
-            onAttachedToWindow();
+            connect();
+            if (mActivity.getWindow() != null &&
+                    mActivity.getWindow().peekDecorView() != null &&
+                    mActivity.getWindow().peekDecorView().isAttachedToWindow()) {
+                onAttachedToWindow();
+            }
         }
+    }
+
+    private boolean isFeedEnabled() {
+        return (mFlags & 1) != 0;
     }
 
     public void setEnableFeed(boolean enable) {
@@ -151,11 +159,21 @@ public class LauncherClient {
             mFlags |= 1;
         } else {
             mFlags &= ~1;
+            if (mOverlay != null) {
+                try {
+                    mOverlay.windowDetached(false);
+                } catch (RemoteException ignored) {
+                }
+            }
+            mBaseService.disconnect();
+            mLauncherService.disconnect();
+            mLauncherService.mOverlay = null;
+            setOverlay(null);
         }
     }
 
     public final void onAttachedToWindow() {
-        if (!mDestroyed) {
+        if (!mDestroyed && isFeedEnabled()) {
             setLayoutParams(mActivity.getWindow().getAttributes());
         }
     }
@@ -169,7 +187,7 @@ public class LauncherClient {
     public final void onResume() {
         if (!mDestroyed) {
             mActivityState |= 2;
-            if (mOverlay != null && mLayoutParams != null) {
+            if (isFeedEnabled() && mOverlay != null && mLayoutParams != null) {
                 try {
                     if (apiVersion < 4) {
                         mOverlay.onResume();
@@ -185,7 +203,7 @@ public class LauncherClient {
     public final void onPause() {
         if (!mDestroyed) {
             mActivityState &= -3;
-            if (mOverlay != null && mLayoutParams != null) {
+            if (isFeedEnabled() && mOverlay != null && mLayoutParams != null) {
                 try {
                     if (apiVersion < 4) {
                         mOverlay.onPause();
@@ -199,12 +217,13 @@ public class LauncherClient {
     }
 
     public final void onStart() {
-        Log.i("FEED", "1");
         if (!mDestroyed) {
-            Log.i("FEED", "2");
+            mActivityState |= 1;
+            if (!isFeedEnabled()) {
+                return;
+            }
             mLauncherService.setStopped(false);
             connect();
-            mActivityState |= 1;
             if (mOverlay != null && mLayoutParams != null) {
                 try {
                     mOverlay.setActivityState(mActivityState);
@@ -216,9 +235,12 @@ public class LauncherClient {
 
     public final void onStop() {
         if (!mDestroyed) {
+            mActivityState &= -2;
+            if (!isFeedEnabled()) {
+                return;
+            }
             mLauncherService.setStopped(true);
             mBaseService.disconnect();
-            mActivityState &= -2;
             if (!(mOverlay == null || mLayoutParams == null)) {
                 try {
                     mOverlay.setActivityState(mActivityState);
@@ -246,7 +268,8 @@ public class LauncherClient {
     }
 
     private void connect() {
-        if (!mDestroyed && (!mLauncherService.connect() || !mBaseService.connect())) {
+        if (!mDestroyed && isFeedEnabled()
+                && (!mLauncherService.connect() || !mBaseService.connect())) {
             mActivity.runOnUiThread(() -> setServiceState(0));
         }
     }
@@ -254,8 +277,16 @@ public class LauncherClient {
     public void reconnect() {
         mBaseService.disconnect();
         mLauncherService.disconnect();
+        if (!isFeedEnabled()) {
+            return;
+        }
         LauncherClient.loadApiVersion(mActivity);
-        if ((mActivityState & 2) != 0) {
+        if (mLayoutParams == null && mActivity.getWindow() != null
+                && mActivity.getWindow().peekDecorView() != null
+                && mActivity.getWindow().peekDecorView().isAttachedToWindow()) {
+            mLayoutParams = mActivity.getWindow().getAttributes();
+        }
+        if ((mActivityState & 3) != 0) {
             connect();
         }
     }

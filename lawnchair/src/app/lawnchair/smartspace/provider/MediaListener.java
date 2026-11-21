@@ -8,6 +8,7 @@ import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -33,16 +34,17 @@ public class MediaListener extends MediaController.Callback {
     private final Runnable mOnChange;
     private List<MediaNotificationController> mControllers = Collections.emptyList();
     private MediaNotificationController mTracking;
-    private final Handler mHandler = new Handler();
+    private final Handler mHandler = new Handler(Looper.getMainLooper());
+    private final NotificationManager mNotificationManager;
     private final FlowCollector<List<StatusBarNotification>> mFlowCollector;
     private List<StatusBarNotification> mNotifications = Collections.emptyList();
 
     public MediaListener(Context context, Consumer<MediaListener> onChange) {
         mContext = context;
         mOnChange = () -> onChange.accept(this);
-        NotificationManager notificationManager = NotificationManager.INSTANCE.get(context);
+        mNotificationManager = NotificationManager.INSTANCE.get(context);
         mFlowCollector = new FlowCollector<>(
-                notificationManager.getNotifications(),
+                mNotificationManager.getNotifications(),
                 item -> {
                     mNotifications = item;
                     updateTracking();
@@ -51,13 +53,16 @@ public class MediaListener extends MediaController.Callback {
     }
 
     public void onResume() {
-        updateTracking();
+        mNotificationManager.refreshSnapshot();
         mFlowCollector.start();
     }
 
     public void onPause() {
-        updateTracking();
         mFlowCollector.stop();
+        mHandler.removeCallbacks(mOnChange);
+        mNotifications = Collections.emptyList();
+        updateControllers(Collections.emptyList());
+        mTracking = null;
     }
 
     public MediaNotificationController getTracking() {

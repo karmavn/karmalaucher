@@ -40,6 +40,7 @@ import app.lawnchair.gestures.VerticalSwipeTouchController
 import app.lawnchair.gestures.config.GestureHandlerConfig
 import app.lawnchair.gestures.ui.LawnchairShortcutActivity
 import app.lawnchair.nexuslauncher.OverlayCallbackImpl
+import app.lawnchair.predictions.NoPredictor
 import app.lawnchair.preferences.PreferenceManager
 import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.preferences2.firstCached
@@ -90,7 +91,9 @@ import com.kieronquinn.app.smartspacer.sdk.client.SmartspacerClient
 import com.patrykmichalik.opto.core.onEach
 import dev.kdrag0n.monet.theme.ColorScheme
 import java.util.stream.Stream
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -164,7 +167,7 @@ class LawnchairLauncher : QuickstepLauncher() {
 
         prefs.launcherTheme.subscribeChanges(this, ::updateTheme)
         prefs.feedProvider.subscribeChanges(this, defaultOverlay::reconnect)
-        preferenceManager2.enableFeed.get().distinctUntilChanged().onEach { enable ->
+        preferenceManager2.enableFeed.get().distinctUntilChanged().drop(1).onEach { enable ->
             defaultOverlay.setEnableFeed(enable)
         }.launchIn(scope = lifecycleScope)
         launcher.stateManager.addStateListener(clearSearchStateListener)
@@ -250,7 +253,10 @@ class LawnchairLauncher : QuickstepLauncher() {
 
         reloadIconsIfNeeded()
 
-        AppDatabase.INSTANCE.get(this).checkpointSync()
+        val appDatabase = AppDatabase.INSTANCE.get(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            appDatabase.checkpoint()
+        }
     }
 
     override fun bindComplete(workspaceItemCount: Int, isBindSync: Boolean) {
@@ -520,7 +526,9 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     override fun onStateSetEnd(state: LauncherState) {
         super.onStateSetEnd(state)
-        refreshPredictionContainersFromModel()
+        if (state == LauncherState.NORMAL || state == LauncherState.ALL_APPS) {
+            refreshPredictionContainersFromModel()
+        }
     }
 
     override fun onDestroy() {
@@ -549,6 +557,11 @@ class LawnchairLauncher : QuickstepLauncher() {
     }
 
     private fun refreshPredictionContainersFromModel() {
+        if (!preferenceManager2.enableGlobalPrediction.firstCached() ||
+            preferenceManager2.predictionMode.firstCached() == NoPredictor
+        ) {
+            return
+        }
         LauncherAppState.getInstance(this).model.loadAsync { dataModel ->
             if (dataModel == null || isDestroyed) return@loadAsync
 
@@ -571,9 +584,11 @@ class LawnchairLauncher : QuickstepLauncher() {
      * Reloads app icons if there is an active icon pack & [PreferenceManager2.alwaysReloadIcons] is enabled.
      */
     private fun reloadIconsIfNeeded() {
-        if (
-            preferenceManager2.alwaysReloadIcons.firstCached()
-        ) {
+        val hasCustomIcons = prefs.iconPackPackage.get().isNotEmpty() ||
+            prefs.themedIconPackPackage.get().isNotEmpty() ||
+            prefs.themedIcons.get() ||
+            prefs.drawerThemedIcons.get()
+        if (hasCustomIcons && preferenceManager2.alwaysReloadIcons.firstCached()) {
             LauncherAppState.getInstance(this).model.reloadIfActive()
         }
     }

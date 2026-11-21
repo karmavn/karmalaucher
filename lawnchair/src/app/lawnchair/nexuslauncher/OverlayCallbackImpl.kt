@@ -35,24 +35,29 @@ class OverlayCallbackImpl(private val mLauncher: LawnchairLauncher) :
     private var mLauncherOverlayCallbacks: LauncherOverlayCallbacks? = null
     private var mWasOverlayAttached = false
     private var mFlags = 0
+    private var mFeedEnabled: Boolean
 
     init {
         val prefs = PreferenceManager2.getInstance(mLauncher)
-        val enableFeed = prefs.enableFeed.firstCached()
+        mFeedEnabled = prefs.enableFeed.firstCached()
         mClient = LauncherClient(
             mLauncher,
             this,
-            StaticInteger((if (enableFeed) 1 else 0) or 2 or 4 or 8),
+            StaticInteger((if (mFeedEnabled) 1 else 0) or 2 or 4 or 8),
         )
     }
 
     fun reconnect() {
+        if (!mFeedEnabled) return
         mClient.reconnect()
     }
 
     fun setEnableFeed(enable: Boolean) {
+        mFeedEnabled = enable
         mClient.setEnableFeed(enable)
-        reconnect()
+        if (enable) {
+            reconnect()
+        }
     }
 
     override fun onDeviceProvideChanged() {

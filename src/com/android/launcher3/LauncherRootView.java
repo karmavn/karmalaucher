@@ -120,6 +120,7 @@ public class LauncherRootView extends InsettableFrameLayout {
 
             // Reuse a single full-screen bitmap for both the wallpaper and the white scrim.
             Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            Bitmap result = null;
             try {
                 Canvas canvas = new Canvas(bitmap);
                 wallpaper.setBounds(0, 0, width, height);
@@ -137,10 +138,11 @@ public class LauncherRootView extends InsettableFrameLayout {
                         .radius(radius)
                         .blur(bitmap);
 
-                final Bitmap result = blurredBitmap;
+                result = blurredBitmap;
+                final Bitmap finalResult = result;
                 MAIN_EXECUTOR.execute(() -> {
                     if (mBlurGeneration.get() == generation && isAttachedToWindow()) {
-                        setBackground(new BitmapDrawable(getContext().getResources(), result));
+                        setBackground(new BitmapDrawable(getContext().getResources(), finalResult));
                         mBlurInstalled = true;
                     }
                 });
@@ -150,6 +152,10 @@ public class LauncherRootView extends InsettableFrameLayout {
                 if (!mBlurFailureLogged) {
                     mBlurFailureLogged = true;
                     Log.w(TAG, "Wallpaper blur failed; keeping previous background", e);
+                }
+            } finally {
+                if (bitmap != result && !bitmap.isRecycled()) {
+                    bitmap.recycle();
                 }
             }
         });

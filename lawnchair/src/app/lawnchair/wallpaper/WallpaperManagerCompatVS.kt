@@ -43,9 +43,7 @@ internal class WallpaperManagerCompatVS(context: Context) : WallpaperManagerComp
             this.wallpaperColors = getSamsungSeedColor()?.let { WallpaperColorsCompat(it, 0) }
             return
         }
-        val platformHints = wallpaperManager
-            .getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
-            ?.colorHints ?: 0
+        val platformHints = wallpaperColors.colorHints
         var hints = 0
         if ((platformHints and WallpaperColors.HINT_SUPPORTS_DARK_TEXT) != 0) {
             hints = hints or HINT_SUPPORTS_DARK_TEXT

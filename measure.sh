@@ -39,6 +39,24 @@ lawnchair/src/app/lawnchair/search/algorithms/engine/provider/SettingsSearchProv
 lawnchair/src/app/lawnchair/search/algorithms/engine/provider/ContactsSearchProvider.kt
 lawnchair/src/app/lawnchair/search/algorithms/engine/provider/CalculatorSearchProvider.kt
 lawnchair/src/app/lawnchair/backup/NovaBackupConverter.kt
+lawnchair/AndroidManifest.xml
+lawnchair/src/app/lawnchair/LawnchairApp.kt
+lawnchair/src/app/lawnchair/LawnchairLauncher.kt
+lawnchair/src/app/lawnchair/HeadlessWidgetsManager.kt
+lawnchair/src/app/lawnchair/NotificationManager.kt
+lawnchair/src/app/lawnchair/data/AppDatabase.kt
+lawnchair/src/app/lawnchair/gestures/handlers/SleepGestureHandler.kt
+lawnchair/src/app/lawnchair/gestures/handlers/SleepTimeoutActivity.kt
+lawnchair/src/app/lawnchair/nexuslauncher/OverlayCallbackImpl.kt
+lawnchair/src/app/lawnchair/predictions/LawnchairPredictionEngine.kt
+lawnchair/src/app/lawnchair/smartspace/BcSmartspaceView.kt
+lawnchair/src/app/lawnchair/smartspace/IcuDateTextView.kt
+lawnchair/src/app/lawnchair/smartspace/provider/BatteryStatusProvider.kt
+lawnchair/src/app/lawnchair/smartspace/provider/MediaListener.java
+lawnchair/src/app/lawnchair/smartspace/provider/SmartspaceWidgetReader.kt
+lawnchair/src/app/lawnchair/smartspace/provider/TorchProvider.kt
+lawnchair/src/com/google/android/libraries/launcherclient/LauncherClient.java
+src/com/android/launcher3/LauncherRootView.java
 .github/workflows/ci.yml
 "
 for f in $FINGERPRINT_FILES; do

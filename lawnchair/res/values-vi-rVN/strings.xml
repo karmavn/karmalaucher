@@ -551,6 +551,13 @@
     <string name="sleep_mode_root">Root</string>
     <string name="sleep_mode_accessibility">Accessibility service</string>
     <string name="sleep_mode_device_admin">Device admin</string>
+    <string name="sleep_mode_timeout">Tắt màn hình theo thời gian chờ</string>
+    <string name="sleep_mode_description">Không sử dụng dịch vụ Trợ năng để tránh bị các ứng dụng nhà mạng (Viettel Tammi...) và ngân hàng chặn.</string>
+    <string name="dt2s_timeout_hint_title">Cần quyền thay đổi cài đặt hệ thống</string>
+    <string name="dt2s_timeout_hint">Để tắt màn hình không cần Trợ năng và vẫn giữ mở khóa vân tay, hãy cho phép Karma Launcher tạm rút ngắn thời gian chờ màn hình. Chạm \"Mở cài đặt\" và bật \"Cho phép sửa đổi cài đặt hệ thống\".</string>
+    <string name="dt2s_admin_biometric_note">Khóa ngay lập tức không cần Trợ năng. Lưu ý: Android có thể yêu cầu PIN hoặc mật khẩu thay vì vân tay ở lần mở kế tiếp.</string>
+    <string name="gesture_unavailable_without_quickstep">Cần tích hợp QuickSwitch / Ứng dụng gần đây</string>
+    <string name="status_bar_expand_failed">Không thể mở bảng hệ thống trên thiết bị này</string>
     <!--
 
     Bug reporting

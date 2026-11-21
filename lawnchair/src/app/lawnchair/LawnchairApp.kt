@@ -22,7 +22,6 @@ import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -44,6 +43,7 @@ import androidx.core.content.FileProvider
 import androidx.profileinstaller.ProfileInstaller
 import app.lawnchair.backup.LawnchairBackup
 import app.lawnchair.flowerpot.Flowerpot
+import app.lawnchair.gestures.handlers.SleepTimeoutActivity
 import app.lawnchair.preferences.PreferenceManager
 import app.lawnchair.ui.ModalBottomSheetContent
 import app.lawnchair.ui.preferences.destinations.openAppInfo
@@ -67,7 +67,6 @@ class LawnchairApp : LauncherApplication() {
     private val isRecentsComponent: Boolean by unsafeLazy { checkRecentsComponent() }
     private val recentsEnabled: Boolean get() = compatible && isRecentsComponent
     private val isAtleastT = Utilities.ATLEAST_T
-    internal var accessibilityService: LawnchairAccessibilityService? = null
     val isVibrateOnIconAnimation: Boolean by unsafeLazy { getSystemUiBoolean("config_vibrateOnIconAnimation", false) }
 
     override fun onCreate() {
@@ -78,7 +77,20 @@ class LawnchairApp : LauncherApplication() {
         registerActivityLifecycleCallbacks(activityHandler)
         // Framework crash workaround on Android 15 and below, see DecorReattachGuard.
         DecorReattachGuard.install(this)
+        if (isMainProcess()) {
+            SleepTimeoutActivity.restorePendingTimeoutIfNeeded(this)
+        }
         scheduleBaselineProfileInstall()
+    }
+
+    private fun isMainProcess(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Application.getProcessName() == packageName
+        } else {
+            // API 26–27 has no Application.getProcessName().
+            getSystemService(ActivityManager::class.java)?.runningAppProcesses
+                ?.any { it.pid == Process.myPid() && it.processName == packageName } == true
+        }
     }
 
     /**
@@ -88,14 +100,7 @@ class LawnchairApp : LauncherApplication() {
      * seconds after start, on a background thread. It is a no-op once written for this install.
      */
     private fun scheduleBaselineProfileInstall() {
-        val isMainProcess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            Application.getProcessName() == packageName
-        } else {
-            // API 26–27 has no Application.getProcessName().
-            getSystemService(ActivityManager::class.java)?.runningAppProcesses
-                ?.any { it.pid == Process.myPid() && it.processName == packageName } == true
-        }
-        if (!isMainProcess) return
+        if (!isMainProcess()) return
         Executors.ORDERED_BG_EXECUTOR.handler.postDelayed(
             {
                 try {
@@ -261,17 +266,6 @@ class LawnchairApp : LauncherApplication() {
         }
 
         return true
-    }
-
-    fun isAccessibilityServiceBound(): Boolean = accessibilityService != null
-
-    fun performGlobalAction(action: Int): Boolean {
-        return accessibilityService?.performGlobalAction(action) ?: run {
-            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .let(::startActivity)
-            false
-        }
     }
 
     companion object {

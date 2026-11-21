@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.pm.LauncherApps
 import android.os.Build
 import android.os.Process
+import android.os.SystemClock
 import android.os.UserHandle
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -15,7 +16,6 @@ import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.preferences2.firstCached
 import com.android.launcher3.AppFilter
 import com.android.launcher3.LauncherSettings.Favorites.CONTAINER_HOTSEAT
-import com.android.launcher3.Utilities
 import com.android.launcher3.model.BgDataModel
 import com.android.launcher3.model.WidgetItem
 import com.android.launcher3.pm.UserCache
@@ -30,6 +30,10 @@ class LawnchairPredictionEngine(
 ) {
     private val userCache = UserCache.INSTANCE.get(context)
     private val prefs2: PreferenceManager2 by lazy { PreferenceManager2.getInstance(context) }
+    private val appFilter: AppFilter by lazy { AppFilter(context) }
+
+    @Volatile
+    private var fallbackCache: FallbackCache? = null
 
     /**
      * Compiles a ranked list of store keys into resolved [AppTarget] entries, filtering out
@@ -121,10 +125,28 @@ class LawnchairPredictionEngine(
      * randomised activity list.
      */
     fun getFallbackRanked(): List<String> {
-        val usageStatsRanked =
-            if (shouldUseWeightedUsageStats()) getUsageStatsRanked() else emptyList()
+        val weighted = shouldUseWeightedUsageStats()
+        val now = SystemClock.elapsedRealtime()
+        val cached = fallbackCache
+        if (cached != null &&
+            cached.weightedUsageStats == weighted &&
+            now - cached.timestampMs < FALLBACK_CACHE_TTL_MS
+        ) {
+            return cached.ranked
+        }
+        val usageStatsRanked = if (weighted) getUsageStatsRanked() else emptyList()
         val randomRanked = getRandomRanked()
-        return mergeRanked(usageStatsRanked, randomRanked)
+        return mergeRanked(usageStatsRanked, randomRanked).also { ranked ->
+            fallbackCache = FallbackCache(
+                ranked = ranked,
+                timestampMs = now,
+                weightedUsageStats = weighted,
+            )
+        }
+    }
+
+    fun invalidateFallbackCache() {
+        fallbackCache = null
     }
 
     /**
@@ -174,7 +196,6 @@ class LawnchairPredictionEngine(
 
     private fun getUsageStatsRanked(): List<String> {
         val launcherApps = context.getSystemService(LauncherApps::class.java) ?: return emptyList()
-        val appFilter = AppFilter(context)
         return usageStatsRanker.getUsageStatsRanked(
             launcherApps = launcherApps,
             appFilter = appFilter,
@@ -184,7 +205,6 @@ class LawnchairPredictionEngine(
 
     private fun getRandomRanked(): List<String> {
         val launcherApps = context.getSystemService(LauncherApps::class.java) ?: return emptyList()
-        val appFilter = AppFilter(context)
         return userProfilesInPredictionOrder()
             .asSequence()
             .flatMap { user ->
@@ -264,6 +284,12 @@ class LawnchairPredictionEngine(
         ).setClassName(componentName.className).build()
     }
 
+    private data class FallbackCache(
+        val ranked: List<String>,
+        val timestampMs: Long,
+        val weightedUsageStats: Boolean,
+    )
+
     private data class ParsedStoreKey(
         val packageName: String,
         val className: String,
@@ -272,5 +298,6 @@ class LawnchairPredictionEngine(
 
     companion object {
         private const val NUM_WIDGET_SUGGESTIONS = 20
+        private const val FALLBACK_CACHE_TTL_MS = 10 * 60 * 1000L
     }
 }

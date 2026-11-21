@@ -53,7 +53,10 @@ fun GesturePreferences(
                 label = stringResource(id = R.string.gesture_back_tap),
             )
         }
-        PreferenceGroup(heading = stringResource(id = R.string.sleep_mode_label)) {
+        PreferenceGroup(
+            heading = stringResource(id = R.string.sleep_mode_label),
+            description = stringResource(id = R.string.sleep_mode_description),
+        ) {
             ListPreference(
                 adapter = prefs.sleepMode.getAdapter(),
                 entries = SleepMode.entries(),

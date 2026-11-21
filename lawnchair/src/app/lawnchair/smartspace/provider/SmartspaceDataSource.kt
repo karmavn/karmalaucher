@@ -29,6 +29,7 @@ sealed class SmartspaceDataSource(
 
     private val restartSignal = MutableStateFlow(0)
     private val enabledTargets get() = internalTargets
+        .distinctUntilChanged()
         .onStart {
             if (requiresSetup()) throw RequiresSetupException()
         }
@@ -57,6 +58,7 @@ sealed class SmartspaceDataSource(
                 flowOf(State(targets = disabledTargets))
             }
         }
+        .distinctUntilChanged()
 
     open suspend fun requiresSetup(): Boolean = false
 
