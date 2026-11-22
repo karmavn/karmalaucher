@@ -1,0 +1,80 @@
+name: Discord Notify
+
+on:
+  push:
+  pull_request:
+    types: [opened, closed, reopened, synchronize, ready_for_review]
+  issues:
+    types: [opened, closed, reopened]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discord:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Discord
+        uses: actions/github-script@v7
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          script: |
+            const hook = process.env.DISCORD_WEBHOOK;
+            if (!hook) { core.setFailed('Missing DISCORD_WEBHOOK secret'); return; }
+            const ev = context.eventName;
+            const p = context.payload;
+            const repo = p.repository ? p.repository.full_name : (context.repo.owner + '/' + context.repo.repo);
+            const cut = (s, n) => String(s == null ? '' : s).slice(0, n);
+            const firstLine = (s) => cut(String(s || '').split(String.fromCharCode(10))[0], 80);
+            let title = '', description = '', color = 0x5865F2, fields = [];
+
+            if (ev === 'push') {
+              const commits = p.commits || [];
+              color = 0x2ECC71;
+              title = '📦 Push vao ' + repo;
+              description = (p.pusher && p.pusher.name ? p.pusher.name : 'ai') + ' day ' + commits.length + ' commit toi ' + cut(p.ref, 80);
+              fields = commits.slice(0, 5).map(c => ({
+                name: String(c.id || '').slice(0, 7),
+                value: '[' + firstLine(c.message) + '](' + c.url + ') - ' + (c.author ? c.author.name : '?')
+              }));
+            } else if (ev === 'pull_request') {
+              const pr = p.pull_request || {};
+              color = 0x3498DB;
+              title = '🔀 Pull request ' + p.action + ': ' + cut(pr.title, 80);
+              description = '[#' + pr.number + '](' + pr.html_url + ') boi ' + (pr.user ? pr.user.login : '?') + ' trong ' + repo;
+              if (pr.body) fields.push({ name: 'Mo ta', value: cut(pr.body, 300) });
+            } else if (ev === 'issues') {
+              const i = p.issue || {};
+              color = 0xF1C40F;
+              title = '🐛 Issue ' + p.action + ': ' + cut(i.title, 80);
+              description = '[#' + i.number + '](' + i.html_url + ') boi ' + (i.user ? i.user.login : '?') + ' trong ' + repo;
+              if (i.body) fields.push({ name: 'Noi dung', value: cut(i.body, 300) });
+            } else if (ev === 'release') {
+              const rel = p.release || {};
+              color = 0xE91E63;
+              title = '🚀 Release ' + cut(rel.tag_name, 40) + ' - ' + cut(rel.name, 60);
+              description = '[Xem ban phat hanh](' + rel.html_url + ')';
+            } else {
+              title = 'GitHub event: ' + ev;
+              description = repo;
+            }
+
+            const embed = {
+              title: cut(title, 256),
+              description: cut(description, 4096),
+              color: color,
+              fields: fields.slice(0, 25),
+              footer: { text: repo + ' - ' + ev },
+              timestamp: new Date().toISOString()
+            };
+            const res = await fetch(hook, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: 'Karma GitHub', embeds: [embed] })
+            });
+            if (!res.ok) core.setFailed('Discord webhook failed: ' + res.status + ' ' + await res.text());
+            else core.info('Discord notified');
